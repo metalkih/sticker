@@ -41,7 +41,7 @@ compose build --pull sticker
 # Launcher boundary tests use only built-in Node APIs and Bash in the image.
 docker run --rm --network none --entrypoint node \
   --mount "type=bind,source=$root,target=/verification,readonly" --workdir /verification \
-  "$STICKER_IMAGE" --test tests/container.test.mjs tests/host-tools.test.mjs
+  "$STICKER_IMAGE" --test tests/container.test.mjs tests/host-tools.test.mjs tests/container-readiness.test.mjs
 # Generated only in this disposable test; never persisted in the checkout/logs.
 OWNER_PASSWORD=$(docker run --rm --network none --entrypoint node "$STICKER_IMAGE" -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
 export OWNER_PASSWORD
@@ -50,6 +50,8 @@ compose exec -T sticker node --input-type=module - initialize < tests/container-
 compose up -d --force-recreate --wait --wait-timeout 90 sticker
 compose exec -T sticker node --input-type=module - verify < tests/container-smoke.mjs
 bash scripts/backup.sh "$temporary/fixture.tar.gz"
+# backup restarts an originally running service, but `start` is not health readiness.
+compose up -d --wait --wait-timeout 90 sticker
 compose exec -T sticker node --input-type=module - mutate < tests/container-smoke.mjs
 bash scripts/restore.sh "$temporary/fixture.tar.gz" --replace-data
 compose up -d --wait --wait-timeout 90 sticker
