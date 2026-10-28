@@ -1,3 +1,4 @@
+import { SessionResourceReferences } from "../resources/SessionResourceReferences.js";
 import { createPortal } from "react-dom";
 import { useState } from "react";
 import type { Bootstrap } from "../../../server/types.js";
@@ -73,6 +74,7 @@ export default function SessionDetail({
         )}
         {detail && (
           <>
+            <SessionResourceReferences key={id} sessionId={id} />
             <h3>
               {detail.session.agentName} · {detail.session.externalSessionId}
             </h3>

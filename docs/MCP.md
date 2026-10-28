@@ -132,3 +132,14 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 ## 프로젝트 이슈 템플릿 (schema 6)
 
 `sticker_list_templates`, `sticker_get_template`, `sticker_preview_template`은 현재 범위의 정의를 읽습니다. `sticker_create_issue`의 `templateId`, 현재 `templateVersion`, `templateValues`, UUID `operationId`로 같은 필수 값 검증을 거쳐 생성합니다. 템플릿 관리/실행/승인 도구는 없습니다. [정확한 생성 및 재시도 계약](ISSUE-TEMPLATES.md).
+
+## 프로젝트·버전 공통 자료 (schema7)
+
+- `sticker_list_resources`: 같은 엄격한 프로젝트/버전/kind/검색 조건으로 권한 내 활성 자료를 조회합니다.
+- `sticker_get_resource`: 자료 ID와 선택 `resourceVersion`으로 상세/이력을 읽습니다. 응답의 `selectedVersion`은 명시한 버전이며 생략하면 현재 내용입니다. tombstone의 현재 내용은null이고 이전 버전으로 자동 대체하지 않습니다.
+- `sticker_get_project_guidance`: 소유자가 지정한 지침을 별도로 읽습니다. 지정이나 내용은 추가 권한·실행 승인이 아닙니다. 에이전트용 지침 지정/해제 도구는 없습니다.
+- `sticker_link_resource`: 현재 `issueRevision`, 자료 ID/버전과 UUID 작업 ID로 참조를 고정합니다. 원본 바이트를 복사하거나 다른 연결을 삭제하지 않습니다.
+- `sticker_record_resource_reference`: 자신의 기록된 세션 결과 이벤트에 실제 참조한 자료 ID와 정확한 버전을 남깁니다. 기록 주체는 서버가 결정합니다.
+- `sticker_upload_resource_file`, `sticker_read_resource_file`: 최대5 MiB의 전달받은 base64 바이트만 등록/읽습니다. 호스트 파일 경로나 URL을 읽지 않습니다. 웹/API의20 MiB 자료는 MCP 한도를 넘으면 웹 다운로드를 사용해야 합니다.
+
+모든 호출은 현재 프로젝트와 연결 이슈/세션 권한을 재확인합니다. 읽기 전용 토큰은 조회만 가능하며, 이미 지정된 지침을 에이전트가 수정/삭제할 수도 없습니다. [데이터·HTTP·불변 버전·백업 계약](RESOURCES.md).

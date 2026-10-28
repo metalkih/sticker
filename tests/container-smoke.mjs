@@ -92,7 +92,11 @@ if (phase === "initialize") {
   ]);
   assert.deepEqual(
     state.issues.map((i) => i.title).sort(),
-    ["Container template provenance fixture", "Persisted container issue"],
+    [
+      "Container shared resource reference",
+      "Container template provenance fixture",
+      "Persisted container issue",
+    ],
     "Backup restore must replace later writes and preserve every fixture issue",
   );
   const core = state.issues.find(
