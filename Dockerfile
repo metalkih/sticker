@@ -1,5 +1,7 @@
-# Node 24 provides node:sqlite; keep build and runtime on the same major.
-FROM node:24-bookworm-slim AS build
+# One official multi-architecture OCI index; build/runtime inherit the same pristine base.
+# Pin evidence and update policy: docs/REPRODUCIBILITY.md (never replace with an arch digest).
+FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS base
+FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -8,7 +10,7 @@ COPY server ./server
 COPY client ./client
 RUN npm run build && npm prune --omit=dev
 
-FROM node:24-bookworm-slim AS runtime
+FROM base AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8787 DATA_DIR=/app/data
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./

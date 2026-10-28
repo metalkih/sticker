@@ -59,4 +59,4 @@ bash scripts/verify-container.sh
 
 [Portable container workflow](../.github/workflows/container.yml)는 GitHub-hosted Ubuntu 러너의 새 체크아웃에서 이 검증을 실행합니다. 레지스트리 푸시·배포·사용자 계정 연결은 하지 않습니다. 워크플로 파일 추가 자체가 성공 증거는 아니며 해당 실행의 결과를 확인해야 합니다.
 
-로컬 Node 기반 단위 테스트, YAML 구문 검사나 모의 Docker 호출 테스트는 실제 Docker 빌드/실행의 대체 증거가 아닙니다. Ubuntu의 컨테이너 검증 성공만으로 ARM64·Windows·macOS 전체가 검증되었다고 간주하지 않습니다. Node 베이스 이미지 태그와 `ubuntu-latest` 러너도 가변이므로 비트 단위 동일 빌드를 보장하지 않습니다.
+로컬 Node 기반 단위 테스트, YAML 구문 검사나 모의 Docker 호출 테스트는 실제 Docker 빌드/실행의 대체 증거가 아닙니다. Ubuntu의 컨테이너 검증 성공만으로 ARM64·Windows·macOS 전체가 검증되었다고 간주하지 않습니다. Node 패치와 다중 아키텍처 기반 digest는 [고정·갱신 정책](REPRODUCIBILITY.md)으로 관리합니다. `ubuntu-24.04` 러너 이미지와 빌더 등은 여전히 갱신되므로 비트 단위 동일 빌드를 보장하지 않습니다.

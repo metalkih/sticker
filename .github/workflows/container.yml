@@ -15,11 +15,18 @@ concurrency:
 
 jobs:
   portable:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Record pinned base and actual runner/builder versions
+        run: |
+          bash scripts/container-toolchain.sh
+          printf 'Runner: %s %s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
+          docker version
+          docker compose version
+          docker buildx version
       - name: Fresh-checkout Docker-only end-to-end verification
         run: bash scripts/verify-container.sh
