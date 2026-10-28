@@ -8,6 +8,7 @@ sticker_require_commands verification docker bash dirname tar date mkdir mv rm g
 cd "$script_dir/.."
 root=$PWD
 docker compose version >/dev/null
+docker buildx version >/dev/null || { echo 'Container verification requires the Docker Buildx plugin; see docs/REPRODUCIBILITY.md.' >&2; exit 2; }
 project="sticker-portability-$$-$RANDOM"
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/sticker-container.XXXXXX")
 export COMPOSE_PROJECT_NAME=$project COMPOSE_FILE="$root/compose.yaml" COMPOSE_PATH_SEPARATOR=:
@@ -37,11 +38,25 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 compose config --quiet
+toolchain=$(bash scripts/container-toolchain.sh)
+printf '%s\n' "$toolchain"
+expected_node= expected_image=
+while IFS='=' read -r key value; do
+  if [[ "$key" == node_version ]]; then expected_node=$value; fi
+  if [[ "$key" == node_image ]]; then expected_image=$value; fi
+done <<< "$toolchain"
 compose build --pull sticker
+docker run --rm --network none --entrypoint node -e STICKER_EXPECTED_NODE_VERSION="$expected_node" \
+  "$STICKER_IMAGE" -e 'if(process.versions.node!==process.env.STICKER_EXPECTED_NODE_VERSION)throw new Error("Container Node version differs from pinned toolchain"); console.log(JSON.stringify({node:process.versions.node,platform:process.platform,architecture:process.arch}))'
+docker image inspect "$STICKER_IMAGE" --format 'Built application image: {{.Id}}'
+# Query by immutable index digest, never by a floating tag. Do not collapse to amd64.
+docker buildx imagetools inspect --raw "$expected_image" | \
+  docker run --rm -i --network none --entrypoint node "$STICKER_IMAGE" -e 'const assert=require("node:assert/strict"),fs=require("node:fs");const index=JSON.parse(fs.readFileSync(0,"utf8"));assert.ok(["application/vnd.oci.image.index.v1+json","application/vnd.docker.distribution.manifest.list.v2+json"].includes(index.mediaType),"Base must be a multi-architecture index");const platforms=index.manifests.map(m=>m.platform).filter(p=>p.os==="linux").map(p=>p.architecture);for(const required of ["amd64","arm64","ppc64le"])assert.ok(platforms.includes(required),"Missing base architecture: "+required);console.log("Pinned base index platforms: "+platforms.join(","))'
+
 # Launcher boundary tests use only built-in Node APIs and Bash in the image.
 docker run --rm --network none --entrypoint node \
   --mount "type=bind,source=$root,target=/verification,readonly" --workdir /verification \
-  "$STICKER_IMAGE" --test tests/container.test.mjs tests/host-tools.test.mjs tests/container-readiness.test.mjs
+  "$STICKER_IMAGE" --test tests/container.test.mjs tests/host-tools.test.mjs tests/container-readiness.test.mjs tests/container-toolchain.test.mjs
 # Generated only in this disposable test; never persisted in the checkout/logs.
 OWNER_PASSWORD=$(docker run --rm --network none --entrypoint node "$STICKER_IMAGE" -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
 export OWNER_PASSWORD

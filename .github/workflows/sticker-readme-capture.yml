@@ -14,16 +14,28 @@ concurrency:
   cancel-in-progress: true
 jobs:
   capture:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Read immutable container toolchain
+        id: toolchain
+        run: bash scripts/container-toolchain.sh >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "24"
+          node-version: ${{ steps.toolchain.outputs.node_version }}
           cache: npm
+      - name: Record actual Node and runner versions
+        env:
+          EXPECTED_NODE_VERSION: ${{ steps.toolchain.outputs.node_version }}
+          NODE_IMAGE: ${{ steps.toolchain.outputs.node_image }}
+        run: |
+          test "$(node -p 'process.versions.node')" = "$EXPECTED_NODE_VERSION"
+          node --version
+          npm --version
+          printf 'Container base: %s\nRunner: %s %s\n' "$NODE_IMAGE" "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium

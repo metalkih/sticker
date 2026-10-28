@@ -17,8 +17,14 @@ test("verification waits for healthy service after backup restarts before its ne
   try {
     for (const directory of ["scripts", "tests", "bin", "source"])
       mkdirSync(join(root, directory));
-    for (const name of ["verify-container.sh", "backup.sh", "host-tools.sh"])
+    for (const name of [
+      "verify-container.sh",
+      "backup.sh",
+      "host-tools.sh",
+      "container-toolchain.sh",
+    ])
       copyFileSync(`scripts/${name}`, join(root, "scripts", name));
+    copyFileSync("Dockerfile", join(root, "Dockerfile"));
     copyFileSync(
       "tests/container-smoke.mjs",
       join(root, "tests/container-smoke.mjs"),

@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     name: ${{ matrix.check }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -25,10 +25,22 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Read immutable container toolchain
+        id: toolchain
+        run: bash scripts/container-toolchain.sh >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "24"
+          node-version: ${{ steps.toolchain.outputs.node_version }}
           cache: npm
+      - name: Record actual Node and runner versions
+        env:
+          EXPECTED_NODE_VERSION: ${{ steps.toolchain.outputs.node_version }}
+          NODE_IMAGE: ${{ steps.toolchain.outputs.node_image }}
+        run: |
+          test "$(node -p 'process.versions.node')" = "$EXPECTED_NODE_VERSION"
+          node --version
+          npm --version
+          printf 'Container base: %s\nRunner: %s %s\n' "$NODE_IMAGE" "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
       - run: npm ci
       - run: npm run "${{ matrix.check }}"
       - name: Compiled server smoke test
