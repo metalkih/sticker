@@ -50,7 +50,11 @@ test("relation picker, board blocker links, stale failure and desktop/mobile key
     page.getByText("차단됨 · 소유자 종결 전", { exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "이슈 상세", exact: true }),
+  ).toBeHidden();
   await page.getByPlaceholder("이슈 검색…").fill("후속 작업");
+  await expect(page.getByPlaceholder("이슈 검색…")).toHaveValue("후속 작업");
   await expect(
     page.getByRole("button", { name: new RegExp(`차단 원인 ${a.key}`) }),
   ).toBeVisible();
@@ -60,7 +64,13 @@ test("relation picker, board blocker links, stale failure and desktop/mobile key
   await expect(
     page.getByRole("heading", { name: a.title, exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "이슈 상세", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "이슈 상세", exact: true }),
+  ).toBeHidden();
   await expect(page.getByPlaceholder("이슈 검색…")).toHaveValue("후속 작업");
   await page
     .getByRole("button", { name: new RegExp(`차단 원인 ${a.key}`) })
@@ -69,12 +79,18 @@ test("relation picker, board blocker links, stale failure and desktop/mobile key
   await expect(
     page.getByRole("heading", { name: a.title, exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "이슈 상세", exact: true }),
+  ).toBeFocused();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
   await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("dialog", { name: "이슈 상세", exact: true }),
+  ).toBeHidden();
   await page.route("**/api/relations/summary", (route) => route.abort());
   await page.getByRole("button", { name: "작업 공간 새로고침" }).click();
   await expect(page.getByText("이전 정보 · 최신 확인 실패")).toBeVisible();

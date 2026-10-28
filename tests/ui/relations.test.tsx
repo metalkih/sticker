@@ -388,3 +388,74 @@ void test("out-of-order detail refreshes preserve newer snapshot and failure pro
     await f.close();
   }
 });
+void test("workspace keeps search and project while keyboard opening and closing a blocker", async () => {
+  const f = await sessionHttpFixture();
+  const login = await nativeFetch(`${f.base}/api/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password: "disposable-session-owner-password" }),
+  });
+  const cookie = login.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+  globalThis.fetch = (input, init = {}) =>
+    nativeFetch(
+      new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+        f.base,
+      ),
+      {
+        ...init,
+        headers: {
+          ...Object.fromEntries(new Headers(init.headers)),
+          cookie,
+          origin: "http://localhost:8787",
+        },
+      },
+    );
+  try {
+    const blocker = f.instance.store.createIssue(sessionOwner, {
+      projectId: f.project.id,
+      title: "선행 작업",
+    });
+    f.instance.store.relations.add(sessionOwner, blocker.id, {
+      kind: "blocks",
+      targetIssueId: f.issue.id,
+      sourceRevision: blocker.revision,
+      targetRevision: f.issue.revision,
+    });
+    dom.window.history.replaceState({}, "", `/#project=${f.project.id}`);
+    const App = (await import("../../client/App.js")).default;
+    const user = userEvent.setup({ document: dom.window.document });
+    render(<App />);
+    const search = await screen.findByPlaceholderText("이슈 검색…");
+    await user.type(search, "입력 요청");
+    const link = await screen.findByRole("button", {
+      name: new RegExp(`차단 원인 ${blocker.key}`),
+    });
+    link.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("heading", { name: "선행 작업" });
+    assert.equal(
+      document.activeElement,
+      screen.getByRole("dialog", { name: "이슈 상세" }),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      assert.equal(screen.queryByRole("dialog", { name: "이슈 상세" }), null);
+    });
+    assert.equal((search as HTMLInputElement).value, "입력 요청");
+    assert.equal(
+      new URLSearchParams(dom.window.location.hash.slice(1)).get("project"),
+      f.project.id,
+    );
+    assert.equal(document.activeElement, link);
+  } finally {
+    cleanup();
+    globalThis.fetch = nativeFetch;
+    await f.close();
+  }
+});
