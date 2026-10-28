@@ -3544,3 +3544,37 @@ main {
   font-size: 11px;
   white-space: nowrap;
 }
+.session-pending {
+  margin: 12px 0;
+}
+.session-pending ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.session-request-action {
+  width: 100%;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 8px 10px;
+  white-space: normal;
+}
+.session-request-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.session-request-kind code {
+  margin-left: auto;
+  font-size: 11px;
+}
+.session-request-preview {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}

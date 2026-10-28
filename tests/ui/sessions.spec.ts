@@ -1,4 +1,7 @@
-import { bootstrapSchema } from "../../server/response-schemas.js";
+import {
+  bootstrapSchema,
+  sessionDetailSchema,
+} from "../../server/response-schemas.js";
 import { test, expect } from "@playwright/test";
 const password =
   process.env.STICKER_TEST_PASSWORD || "ephemeral-sticker-test-password";
@@ -59,6 +62,37 @@ test("sessions remain separate, keyboard detail direct-route refresh/back and lo
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  const sessionId = new URLSearchParams(new URL(page.url()).hash.slice(1)).get(
+    "session",
+  );
+  if (!sessionId) throw new Error("Missing selected session route");
+  const detailResponse = await page.request.get(
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  const rawDetail: unknown = await detailResponse.json(),
+    detail = sessionDetailSchema.parse(rawDetail);
+  const pendingRequest = detail.requests.find(
+    (request) => request.status === "pending" && request.kind === "input",
+  );
+  if (!pendingRequest) throw new Error("Missing fixture pending input request");
+  const action = page
+    .getByRole("region", { name: "미처리 요청" })
+    .getByRole("button", {
+      name: `입력 요청 ${pendingRequest.id} 확인`,
+      exact: true,
+    });
+  await expect(action).toHaveAccessibleDescription(pendingRequest.prompt);
+  await expect(action).toBeInViewport({ ratio: 1 });
+  await action.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "요청 확인" })).toBeVisible();
+  expect(
+    new URLSearchParams(new URL(page.url()).hash.slice(1)).get("request"),
+  ).toBe(pendingRequest.id);
+  await page.goBack();
+  await expect(
+    page.getByRole("dialog", { name: "에이전트 세션 상세" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "창 닫기", exact: true }).click();
   await page.goBack();
   await expect(

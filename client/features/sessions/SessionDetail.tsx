@@ -81,6 +81,54 @@ export default function SessionDetail({
               {detail.session.legacy ? " · 이전 단일 보고" : ""}
             </p>
             <SessionState session={detail.session} time={time} />
+            {detail.requests.some(
+              (request) => request.status === "pending",
+            ) && (
+              <section className="session-pending" aria-label="미처리 요청">
+                <h3>미처리 요청</h3>
+                <ul>
+                  {detail.requests
+                    .filter((request) => request.status === "pending")
+                    .map((request) => {
+                      const kind =
+                        request.kind === "input"
+                          ? "입력 요청"
+                          : "결과 검토 요청";
+                      const characters = Array.from(request.prompt);
+                      const preview = characters.slice(0, 40).join("");
+                      return (
+                        <li key={request.id}>
+                          <button
+                            className="button secondary session-request-action"
+                            aria-label={`${kind} ${request.id} 확인`}
+                            aria-describedby={`request-preview-${request.id}`}
+                            onClick={() => {
+                              navigate({
+                                section: "inbox",
+                                request: request.id,
+                                session: "",
+                              });
+                            }}
+                          >
+                            <span className="session-request-kind">
+                              {request.kind === "input" ? "?" : "◇"} {kind} 확인{" "}
+                              <code>{request.id.slice(0, 8)}</code>
+                            </span>
+                            <span
+                              id={`request-preview-${request.id}`}
+                              className="session-request-preview"
+                            >
+                              {preview}
+                              {characters.length > 40 ? "…" : ""}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </section>
+            )}
+
             <p>
               시작: {dateText(detail.session.startedAt, true)}
               <br />

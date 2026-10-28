@@ -811,3 +811,176 @@ void test("owner inbox preserves exact-request draft on real stale revision and 
     await f.close();
   }
 });
+
+void test("session pending controls precede long history, show only pending requests and route the exact keyboard-selected request", async () => {
+  const f = await fixture();
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const project = f.instance.store.createProject(owner, {
+      key: "PC",
+      name: "미처리 요청",
+    });
+    const issue = f.instance.store.createIssue(owner, {
+      projectId: project.id,
+      title: "확인 작업",
+    });
+    const agent = {
+      id: "fixture",
+      name: "검증 에이전트",
+      role: "agent" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const base = {
+      projectId: project.id,
+      issueId: issue.id,
+      externalSessionId: "pending-controls",
+      kind: "request",
+      requestKind: "input",
+    };
+    f.instance.store.sessions.report(agent, {
+      projectId: project.id,
+      issueId: issue.id,
+      externalSessionId: base.externalSessionId,
+      eventId: "long",
+      kind: "result",
+      message: "긴 출력".repeat(1500),
+    });
+    const a = f.instance.store.sessions.report(agent, {
+      ...base,
+      eventId: "a",
+      message: "입력 A",
+    });
+    const b = f.instance.store.sessions.report(agent, {
+      ...base,
+      eventId: "b",
+      requestKind: "review",
+      message: "검토 B",
+    });
+    const c = f.instance.store.sessions.report(agent, {
+      ...base,
+      eventId: "c",
+      message: "답변 C",
+    });
+    const d = f.instance.store.sessions.report(agent, {
+      ...base,
+      eventId: "d",
+      message: "종결 D",
+    });
+    assert.ok(a.request);
+    assert.ok(b.request);
+    assert.ok(c.request);
+    assert.ok(d.request);
+    f.instance.store.sessions.respond(owner, c.request.id, {
+      revision: 1,
+      operationId: crypto.randomUUID(),
+      body: "기록된 답변",
+    });
+    f.instance.store.sessions.closeRequest(owner, d.request.id, {
+      revision: 1,
+      operationId: crypto.randomUUID(),
+    });
+    f.instance.store.sessions.report(agent, {
+      projectId: project.id,
+      issueId: issue.id,
+      externalSessionId: "blocked-only",
+      eventId: "blocked",
+      kind: "report",
+      state: "blocked",
+      message: "외부 의존성",
+    });
+    await f.login();
+    await f.click("에이전트 기록");
+    await f.user.click(
+      await screen.findByRole("button", { name: "세션 pending-controls 상세" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "에이전트 세션 상세",
+    });
+    const controls = await within(dialog).findByRole("region", {
+      name: "미처리 요청",
+    });
+    assert.equal(within(controls).getAllByRole("button").length, 2);
+    assert.ok(
+      within(controls).getByRole("button", {
+        name: `결과 검토 요청 ${b.request.id} 확인`,
+      }),
+    );
+    const metadata = within(dialog).getByText(/^시작:/);
+    assert.ok(
+      controls.compareDocumentPosition(metadata) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    assert.equal(
+      Boolean(
+        within(controls).queryByRole("button", {
+          name: `입력 요청 ${c.request.id} 확인`,
+        }),
+      ),
+      false,
+    );
+    assert.equal(
+      Boolean(
+        within(controls).queryByRole("button", {
+          name: `입력 요청 ${d.request.id} 확인`,
+        }),
+      ),
+      false,
+    );
+    const timeline = within(dialog).getByRole("list", {
+      name: "이벤트 타임라인",
+    });
+    assert.equal(within(timeline).getAllByRole("button").length, 4);
+    assert.ok(
+      controls.compareDocumentPosition(timeline) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const action = within(controls).getByRole("button", {
+      name: `입력 요청 ${a.request.id} 확인`,
+    });
+    const descriptionId = action.getAttribute("aria-describedby");
+    assert.ok(descriptionId);
+    assert.equal(document.getElementById(descriptionId)?.textContent, "입력 A");
+    action.focus();
+    await f.user.keyboard("{Enter}");
+    const requestDialog = await screen.findByRole("dialog", {
+      name: "요청 확인",
+    });
+    assert.ok(await within(requestDialog).findByText("입력 A"));
+    assert.equal(
+      new URLSearchParams(dom.window.location.hash.slice(1)).get("request"),
+      a.request.id,
+    );
+    assert.equal(
+      f.instance.store.sessions.getRequest(owner, a.request.id).status,
+      "pending",
+    );
+    assert.equal(
+      f.instance.store.getIssue(owner, issue.id).issue.status,
+      "backlog",
+    );
+    await f.user.keyboard("{Escape}");
+    await f.click("에이전트 기록");
+    await f.user.click(
+      await screen.findByRole("button", { name: "세션 blocked-only 상세" }),
+    );
+    const blockedDialog = await screen.findByRole("dialog", {
+      name: "에이전트 세션 상세",
+    });
+    await within(blockedDialog).findByText("! 막힘이라는 자기 보고");
+    assert.equal(
+      Boolean(
+        within(blockedDialog).queryByRole("region", { name: "미처리 요청" }),
+      ),
+      false,
+    );
+  } finally {
+    await f.close();
+  }
+});
