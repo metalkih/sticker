@@ -150,10 +150,15 @@ test("project examples become revisioned templates and create validated immutabl
     .getByRole("button", { name: "이슈 만들기", exact: true })
     .click();
   await expect(editor).toBeHidden();
+  const detail = page.getByRole("dialog", { name: "이슈 상세", exact: true });
   await expect(
-    page.getByRole("heading", { name: "템플릿으로 등록한 오류", exact: true }),
+    detail.getByRole("heading", {
+      name: "템플릿으로 등록한 오류",
+      exact: true,
+      level: 2,
+    }),
   ).toBeVisible();
-  await expect(page.locator(".template-provenance")).toContainText(
+  await expect(detail.locator(".template-provenance")).toContainText(
     `${id} · v2`,
   );
   const issueId = new URLSearchParams(new URL(page.url()).hash.slice(1)).get(
@@ -181,10 +186,10 @@ test("project examples become revisioned templates and create validated immutabl
     data: { revision: current.template.revision + 1 },
   });
   await page.reload();
-  await expect(page.locator(".description-text")).toHaveText(
+  await expect(detail.locator(".description-text")).toHaveText(
     before.issue.description,
   );
-  await expect(page.locator(".template-provenance")).toContainText("v2");
+  await expect(detail.locator(".template-provenance")).toContainText("v2");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
