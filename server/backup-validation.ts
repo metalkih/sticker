@@ -42,7 +42,7 @@ export function validateBackup(stageDir: string): {
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (!isSchemaVersion(version))
       throw new Error(
-        `Unsupported Sticker schema version: ${String(version)}. Expected 1 or 2.`,
+        `Unsupported Sticker schema version: ${String(version)}. Expected ${Object.keys(schemaManifests).join(", ")}.`,
       );
     const tables = new Set(
       db

@@ -26,6 +26,7 @@ import {
 export { DomainError } from "./domain-error.js";
 import { DomainError } from "./domain-error.js";
 import { StoreContext } from "./store-context.js";
+import { ReleaseService } from "./features/releases.js";
 import { RelationService } from "./features/relations.js";
 import { SessionService } from "./features/sessions.js";
 const id = z.string().min(1).max(128);
@@ -70,7 +71,11 @@ const versionCreate = z
     dueDate: versionFields.dueDate.default(null),
   })
   .strict();
-const versionUpdate = z.object(versionFields).partial().strict();
+const versionUpdate = z
+  .object(versionFields)
+  .partial()
+  .extend({ revision: z.number().int().positive() })
+  .strict();
 const issueFields = {
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
@@ -191,13 +196,24 @@ export class Store {
   private context: StoreContext;
   readonly sessions: SessionService;
   readonly relations: RelationService;
+  readonly releases: ReleaseService;
   private get db() {
     return this.context.db;
   }
-  constructor(dataDir: string, clock: () => number = Date.now) {
+  constructor(
+    dataDir: string,
+    clock: () => number = Date.now,
+    origin = "http://localhost:8787",
+  ) {
     this.context = new StoreContext(dataDir, clock);
     this.sessions = new SessionService(this.context);
     this.relations = new RelationService(this.context);
+    this.releases = new ReleaseService(
+      this.context,
+      this.relations,
+      (actor, id, input) => this.patchIssue(actor, id, input),
+      origin,
+    );
   }
   close() {
     this.context.db.close();
@@ -390,21 +406,52 @@ export class Store {
   createVersion(actor: Actor, input: unknown): Version {
     this.write(actor);
     const data = parse(versionCreate, input);
+    if (data.state === "released")
+      throw new DomainError(
+        409,
+        "RELEASE_CONFIRMATION_REQUIRED",
+        "출시 검토에서 소유자가 명시적으로 확인하세요.",
+      );
     return this.tx(() => {
       this.project(actor, data.projectId);
       const stamp = now(),
-        v = { id: randomUUID(), ...data, createdAt: stamp, updatedAt: stamp };
+        v = {
+          id: randomUUID(),
+          ...data,
+          revision: 1,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
       this.insert("versions", v);
       return v;
     });
   }
   updateVersion(actor: Actor, versionId: string, input: unknown): Version {
     this.write(actor);
-    const data = parse(versionUpdate, input);
+    const { revision, ...data } = parse(versionUpdate, input);
     return this.tx(() => {
       const old = this.get("versions", versionId);
       this.scope(actor, textColumn(old, "projectId"));
-      this.update("versions", versionId, { ...data, updatedAt: now() });
+      if (old.revision !== revision)
+        throw new DomainError(
+          409,
+          "REVISION_CONFLICT",
+          "버전이 변경되었습니다. 최신 내용을 확인하세요.",
+        );
+      if (
+        data.state !== undefined &&
+        (data.state === "released" || old.state === "released")
+      )
+        throw new DomainError(
+          409,
+          "RELEASE_CONFIRMATION_REQUIRED",
+          "출시 상태 변경은 소유자의 명시적 검토가 필요합니다.",
+        );
+      this.update("versions", versionId, {
+        ...data,
+        revision: revision + 1,
+        updatedAt: now(),
+      });
       return versionSchema.parse(this.get("versions", versionId));
     });
   }
@@ -412,6 +459,13 @@ export class Store {
     this.write(actor);
     this.tx(() => {
       const v = this.get("versions", versionId);
+      if (
+        v.state === "released" ||
+        this.db
+          .prepare("SELECT 1 FROM version_release_audit WHERE versionId=?")
+          .get(versionId)
+      )
+        this.owner(actor);
       this.scope(actor, textColumn(v, "projectId"));
       const affected = this.db
         .prepare(
@@ -472,6 +526,9 @@ export class Store {
     });
   }
   updateIssue(actor: Actor, issueId: string, input: unknown): Issue {
+    return this.tx(() => this.patchIssue(actor, issueId, input));
+  }
+  private patchIssue(actor: Actor, issueId: string, input: unknown): Issue {
     this.write(actor);
     if (
       !input ||
@@ -486,39 +543,37 @@ export class Store {
         "최신 이슈 revision을 함께 보내세요.",
       );
     const { revision, ...data } = parse(issueUpdate, input);
-    return this.tx(() => {
-      const current = this.writableIssue(actor, issueId);
-      if (current.revision !== revision)
-        throw new DomainError(
-          409,
-          "REVISION_CONFLICT",
-          "다른 사용자가 변경했습니다. 최신 이슈를 불러온 뒤 다시 시도하세요.",
-        );
-      if (data.status === "closed" && actor.role !== "owner")
-        throw new DomainError(
-          403,
-          "OWNER_REQUIRED",
-          "소유자만 이슈를 종료할 수 있습니다.",
-        );
-      this.versionsBelong(current.projectId, data);
-      const { labels, ...fields } = data;
-      const changes: Record<string, SQLInputValue> = {
-        ...fields,
-        revision: revision + 1,
-        updatedAt: now(),
-        ...(labels ? { labels: JSON.stringify(labels) } : {}),
-      };
-      this.update("issues", issueId, changes);
-      this.activity(
-        actor,
-        issueId,
-        "updated",
-        Object.keys(data).length
-          ? `변경: ${Object.keys(data).join(", ")}`
-          : "이슈 확인",
+    const current = this.writableIssue(actor, issueId);
+    if (current.revision !== revision)
+      throw new DomainError(
+        409,
+        "REVISION_CONFLICT",
+        "다른 사용자가 변경했습니다. 최신 이슈를 불러온 뒤 다시 시도하세요.",
       );
-      return this.issue(actor, issueId);
-    });
+    if (data.status === "closed" && actor.role !== "owner")
+      throw new DomainError(
+        403,
+        "OWNER_REQUIRED",
+        "소유자만 이슈를 종료할 수 있습니다.",
+      );
+    this.versionsBelong(current.projectId, data);
+    const { labels, ...fields } = data;
+    const changes: Record<string, SQLInputValue> = {
+      ...fields,
+      revision: revision + 1,
+      updatedAt: now(),
+      ...(labels ? { labels: JSON.stringify(labels) } : {}),
+    };
+    this.update("issues", issueId, changes);
+    this.activity(
+      actor,
+      issueId,
+      "updated",
+      Object.keys(data).length
+        ? `변경: ${Object.keys(data).join(", ")}`
+        : "이슈 확인",
+    );
+    return this.issue(actor, issueId);
   }
   deleteIssue(actor: Actor, issueId: string): void {
     this.owner(actor);

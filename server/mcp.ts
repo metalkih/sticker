@@ -1,3 +1,4 @@
+import { registerReleaseTools } from "./mcp/releases.js";
 import { registerRelationTools } from "./mcp/relations.js";
 import { registerSessionTools } from "./mcp/sessions.js";
 import { bootstrapSchema, apiErrorSchema } from "./response-schemas.js";
@@ -34,7 +35,7 @@ const projectFields = {
 const versionFields = {
   name: z.string().min(1).max(160).optional(),
   description: z.string().max(20_000).optional(),
-  state: z.enum(["planned", "released", "archived"]).optional(),
+  state: z.enum(["planned", "archived"]).optional(),
   dueDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -206,6 +207,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
   }
   registerSessionTools({ tool, json });
   registerRelationTools({ tool, json });
+  registerReleaseTools({ tool, json });
   const e = encodeURIComponent;
   tool(
     "sticker_list_projects",
@@ -240,7 +242,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
   tool(
     "sticker_update_version",
     "버전 상태와 일정을 수정합니다.",
-    { versionId: id, ...versionFields },
+    { versionId: id, revision: z.number().int().positive(), ...versionFields },
     async ({ versionId, ...body }) =>
       json(`/api/versions/${e(versionId)}`, "PATCH", body),
   );

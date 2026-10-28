@@ -124,3 +124,7 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 ### 이슈 관계
 
 `sticker_get_issue_relations`, `sticker_add_issue_relation`, `sticker_remove_issue_relation`은 같은 프로젝트의 부모·관련·차단 관계를 처리합니다. 변경에는 양끝 이슈의 현재 revision이 필요합니다. 차단 해소는 자동 실행·승인·종결이 아닙니다. 요청 형태와 상태 의미는 [이슈 관계](ISSUE-RELATIONS.md)를 참고하세요.
+
+## 버전 출시 준비도 (schema v4)
+
+`sticker_get_version_readiness`는 목표·발견·수정 이슈와 미완료/done/closed/차단 집계를, `sticker_get_version_changelog`는 저장된 Markdown 초안을 같은 프로젝트 권한으로 읽습니다. 일반 버전 수정에는 `revision`이 필요합니다. 출시 상태 확인은 owner-only 웹/API 흐름이며 에이전트용 출시/외부 발행 도구는 없습니다. [출시 계약](RELEASES.md).

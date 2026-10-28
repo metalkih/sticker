@@ -1,3 +1,4 @@
+import { readinessSchema } from "../server/contracts/releases.js";
 import {
   projectSchema,
   issueSchema,
@@ -138,12 +139,14 @@ export function VersionEditor({
   projectId,
   onClose,
   onSaved,
+  onReview,
 }: {
   version?: Version;
   data: Bootstrap;
   projectId?: string;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onReview?: (version: Version) => void;
 }) {
   const [project, setProject] = useState(
     version?.projectId || projectId || data.projects[0]?.id || "",
@@ -154,6 +157,9 @@ export function VersionEditor({
     version?.state || "planned",
   );
   const [dueDate, setDueDate] = useState(version?.dueDate?.slice(0, 10) || "");
+  const [revision, setRevision] = useState(version?.revision ?? 1);
+  const [latest, setLatest] = useState<Version | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
@@ -165,16 +171,18 @@ export function VersionEditor({
       await api(version ? `/versions/${version.id}` : "/versions", {
         method: version ? "PATCH" : "POST",
         body: json({
-          ...(version ? {} : { projectId: project }),
+          ...(version ? { revision } : { projectId: project }),
           name,
           description,
-          state,
+          ...(state === "released" ? {} : { state }),
           dueDate: dueDate || null,
         }),
       });
       await onSaved();
     } catch (e) {
       setError(errorText(e));
+      if (e instanceof ApiError && e.code === "REVISION_CONFLICT")
+        setConflict(true);
     } finally {
       setBusy(false);
     }
@@ -216,18 +224,35 @@ export function VersionEditor({
             />
           </Field>
           <Field label="버전 상태">
-            <select
-              value={state}
-              onChange={(e) => {
-                setState(e.target.value as Version["state"]);
-              }}
-            >
-              {Object.entries(versionStateNames).map(([v, n]) => (
-                <option value={v} key={v}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            {version?.state === "released" ? (
+              <span>{versionStateNames.released}</span>
+            ) : (
+              <select
+                value={state}
+                onChange={(e) => {
+                  setState(e.target.value as Version["state"]);
+                }}
+              >
+                {Object.entries(versionStateNames)
+                  .filter(([value]) => value !== "released")
+                  .map(([v, n]) => (
+                    <option value={v} key={v}>
+                      {n}
+                    </option>
+                  ))}
+              </select>
+            )}
+            {version && onReview && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  onReview(version);
+                }}
+              >
+                출시 검토
+              </button>
+            )}
           </Field>
           <Field label="목표 날짜">
             <input
@@ -251,11 +276,63 @@ export function VersionEditor({
           />
         </Field>
         <ErrorNotice message={error} />
+        {conflict && version && (
+          <div className="release-conflict">
+            {latest ? (
+              <>
+                <span>
+                  서버 최신 버전: {latest.name} · r{latest.revision}
+                </span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setRevision(latest.revision);
+                    setConflict(false);
+                    setLatest(null);
+                    setError("");
+                  }}
+                >
+                  최신 버전 기준으로 초안 유지
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      setLatest(
+                        (
+                          await api(
+                            `/versions/${version.id}/readiness`,
+                            undefined,
+                            readinessSchema,
+                          )
+                        ).version,
+                      );
+                    } catch (e) {
+                      setError(errorText(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                최신 버전 검토
+              </button>
+            )}
+          </div>
+        )}
+
         <footer className="form-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             취소
           </button>
-          <button className="button primary" disabled={busy}>
+          <button className="button primary" disabled={busy || conflict}>
             {busy ? "저장 중…" : version ? "변경 저장" : "버전 만들기"}
           </button>
         </footer>

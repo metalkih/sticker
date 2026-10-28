@@ -1,3 +1,4 @@
+import VersionDetail from "./features/releases/VersionDetail.js";
 import { IssueCard } from "./features/issues/IssueCard.js";
 import { IssueListRow } from "./features/issues/IssueListRow.js";
 import { useRelationSummaries } from "./features/relations/RelationSummary.js";
@@ -21,7 +22,7 @@ import {
   versionStateNames,
   dateText,
 } from "./format.js";
-import { readRoute, navigate, type Route } from "./router.js";
+import { readRoute, navigate, subscribeRoute, type Route } from "./router.js";
 import AgentSessions from "./features/sessions/AgentSessions.js";
 import OwnerInbox from "./features/sessions/OwnerInbox.js";
 export default function App() {
@@ -81,15 +82,7 @@ export default function App() {
       clearInterval(timer);
     };
   }, [refresh]);
-  useEffect(() => {
-    const update = () => {
-      setRoute(readRoute());
-    };
-    window.addEventListener("hashchange", update);
-    return () => {
-      window.removeEventListener("hashchange", update);
-    };
-  }, []);
+  useEffect(() => subscribeRoute(setRoute), []);
   if (filterProject !== route.project) {
     setFilterProject(route.project);
     setStatus("");
@@ -833,99 +826,139 @@ export default function App() {
               </button>
             </div>
           )}
-          {route.section === "versions" && (
-            <>
-              <div className="section-filter">
-                <label>
-                  프로젝트
-                  <select
-                    aria-label="버전 프로젝트 필터"
-                    value={route.project}
-                    onChange={(e) => {
-                      navigate({ project: e.target.value });
-                    }}
-                  >
-                    <option value="">모든 프로젝트</option>
-                    {data.projects.map((p) => (
-                      <option value={p.id} key={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {currentVersions.length ? (
-                <div className="versions-list">
-                  {currentVersions.map((v) => {
-                    const p = data.projects.find((p) => p.id === v.projectId);
-                    const issues = data.issues.filter(
-                      (i) => i.targetVersionId === v.id,
-                    );
-                    return (
-                      <article className="version-card" key={v.id}>
-                        <div className={`version-sticker ${v.state}`}>
-                          <Icon name="version" size={24} />
-                        </div>
-                        <div className="version-main">
-                          <div className="version-title">
-                            <h2>{v.name}</h2>
-                            <span className={`version-state state-${v.state}`}>
-                              {versionStateNames[v.state]}
-                            </span>
-                          </div>
-                          <p>{v.description || "설명 없음"}</p>
-                          <div className="version-meta">
-                            <span>
-                              <i
-                                className="project-dot"
-                                style={{ background: p?.color }}
-                              />
-                              {p?.name}
-                            </span>
-                            <span>{dateText(v.dueDate)}</span>
-                            <span>목표 이슈 {issues.length}개</span>
-                          </div>
-                        </div>
-                        <div className="row-actions">
-                          <button
-                            className="icon-button"
-                            aria-label={`${v.name} 버전 편집`}
-                            onClick={() => {
-                              setVersionEditor(v);
-                            }}
-                          >
-                            <Icon name="edit" size={17} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            aria-label={`${v.name} 버전 삭제`}
-                            onClick={() => {
-                              setDeleteTarget({
-                                type: "version",
-                                id: v.id,
-                                name: v.name,
-                              });
-                            }}
-                          >
-                            <Icon name="trash" size={17} />
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
+          {route.section === "versions" &&
+            (route.version ? (
+              <VersionDetail
+                key={route.version}
+                id={route.version}
+                data={data}
+                tab={route.tab}
+                bucket={route.bucket}
+                onTab={(tab) => {
+                  navigate({ tab, bucket: "all" });
+                }}
+                onBucket={(bucket) => {
+                  navigate({ bucket });
+                }}
+                onOpenIssue={(issue) => {
+                  navigate({ issue });
+                }}
+                onBack={() => {
+                  navigate({ version: "", tab: "", bucket: "" });
+                }}
+                onChanged={refresh}
+              />
+            ) : (
+              <>
+                <div className="section-filter">
+                  <label>
+                    프로젝트
+                    <select
+                      aria-label="버전 프로젝트 필터"
+                      value={route.project}
+                      onChange={(e) => {
+                        navigate({ project: e.target.value });
+                      }}
+                    >
+                      <option value="">모든 프로젝트</option>
+                      {data.projects.map((p) => (
+                        <option value={p.id} key={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-              ) : (
-                <Empty
-                  title="버전 없음"
-                  action={
-                    <button className="button primary" onClick={newVersion}>
-                      첫 버전 만들기
-                    </button>
-                  }
-                />
-              )}
-            </>
-          )}
+                {currentVersions.length ? (
+                  <div className="versions-list">
+                    {currentVersions.map((v) => {
+                      const p = data.projects.find((p) => p.id === v.projectId);
+                      const issues = data.issues.filter(
+                        (i) => i.targetVersionId === v.id,
+                      );
+                      return (
+                        <article className="version-card" key={v.id}>
+                          <div className={`version-sticker ${v.state}`}>
+                            <Icon name="version" size={24} />
+                          </div>
+                          <div className="version-main">
+                            <div className="version-title">
+                              <h2>
+                                <button
+                                  className="version-open"
+                                  onClick={() => {
+                                    navigate({
+                                      version: v.id,
+                                      tab: "target",
+                                      bucket: "all",
+                                      project: v.projectId,
+                                    });
+                                  }}
+                                  aria-label={`${v.name} 버전 상세`}
+                                >
+                                  {v.name}
+                                </button>
+                              </h2>
+                              <span
+                                className={`version-state state-${v.state}`}
+                              >
+                                {versionStateNames[v.state]}
+                              </span>
+                            </div>
+                            <p>{v.description || "설명 없음"}</p>
+                            <div className="version-meta">
+                              <span>
+                                <i
+                                  className="project-dot"
+                                  style={{ background: p?.color }}
+                                />
+                                {p?.name}
+                              </span>
+                              <span>{dateText(v.dueDate)}</span>
+                              <span>목표 이슈 {issues.length}개</span>
+                            </div>
+                          </div>
+                          <div className="row-actions">
+                            <button
+                              className="icon-button"
+                              aria-label={`${v.name} 버전 편집`}
+                              onClick={() => {
+                                setVersionEditor(v);
+                              }}
+                            >
+                              <Icon name="edit" size={17} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              aria-label={`${v.name} 버전 삭제`}
+                              onClick={() => {
+                                setDeleteTarget({
+                                  type: "version",
+                                  id: v.id,
+                                  name: v.name,
+                                });
+                              }}
+                            >
+                              <Icon name="trash" size={17} />
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Empty
+                    title="다음 릴리스를 위한 한 장"
+                    description="버전을 만들고 목표 이슈를 연결해 보세요. 발견한 버전과 수정한 버전도 별도로 남길 수 있어요."
+                    action={
+                      <button className="button primary" onClick={newVersion}>
+                        첫 버전 만들기
+                      </button>
+                    }
+                  />
+                )}
+              </>
+            ))}
           {route.section === "agents" && (
             <AgentSessions
               key={route.project}
@@ -970,6 +1003,17 @@ export default function App() {
           version={versionEditor === "new" ? undefined : versionEditor}
           data={data}
           projectId={route.project}
+          onReview={(version) => {
+            setVersionEditor(null);
+            navigate({
+              section: "versions",
+              project: version.projectId,
+              version: version.id,
+              tab: "target",
+              bucket: "all",
+              issue: "",
+            });
+          }}
           onClose={() => {
             setVersionEditor(null);
           }}

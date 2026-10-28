@@ -124,7 +124,7 @@ const baseManifests = {
     ],
   },
 } as const;
-export const schemaManifests = {
+const throughV3 = {
   ...baseManifests,
   3: {
     ...baseManifests[2],
@@ -139,7 +139,53 @@ export const schemaManifests = {
     ],
   },
 } as const;
+export const schemaManifests = {
+  ...throughV3,
+  4: {
+    ...throughV3[3],
+    versions: [...v1.versions, "revision"],
+    version_changelogs: [
+      "versionId",
+      "markdown",
+      "selectedIssueIds",
+      "revision",
+      "authorId",
+      "authorName",
+      "updatedAt",
+    ],
+    version_changelog_history: [
+      "id",
+      "versionId",
+      "markdown",
+      "selectedIssueIds",
+      "revision",
+      "authorId",
+      "authorName",
+      "updatedAt",
+    ],
+    version_release_audit: [
+      "id",
+      "versionId",
+      "authorId",
+      "authorName",
+      "fromState",
+      "toState",
+      "reviewedRevision",
+      "operationId",
+      "createdAt",
+    ],
+    release_operations: [
+      "actorId",
+      "kind",
+      "operationId",
+      "versionId",
+      "payload",
+      "result",
+      "createdAt",
+    ],
+  },
+} as const;
 export type SchemaVersion = keyof typeof schemaManifests;
 export function isSchemaVersion(value: unknown): value is SchemaVersion {
-  return value === 1 || value === 2 || value === 3;
+  return value === 1 || value === 2 || value === 3 || value === 4;
 }

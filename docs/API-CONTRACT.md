@@ -15,3 +15,7 @@ Store interface (domain owner implements `server/domain.ts`): `new Store(dataDir
 ## 이슈 관계 (schema 3)
 
 같은 프로젝트의 부모/하위, 관련, 차단/피차단 관계 및 일괄 보드 요약 API를 제공합니다. 양끝 이슈 revision CAS와 현재 권한을 확인하며 자기 참조·방향별 순환을 거부합니다. [요청·응답 및 의미](ISSUE-RELATIONS.md)를 참고하세요. `done`은 차단을 해소하지 않으며 `closed` 후에도 자동 시작·종결은 없습니다.
+
+## 출시 준비도와 명시적 확인 (schema v4)
+
+버전 응답은 `revision`을 포함하며 일반 PATCH에도 현재 revision이 필요합니다. 일반 생성/PATCH의 released 진입/이탈은 `RELEASE_CONFIRMATION_REQUIRED`로 거부합니다. 준비도, 이관 미리보기/항목별 결과, Markdown 초안과 owner-only 출시 확인의 요청/응답·중복 처리 정책은 [출시 검토 계약](RELEASES.md)에 정리했습니다. 앱 내부 메타데이터 외의 배포/외부 발행 동작은 없습니다.
