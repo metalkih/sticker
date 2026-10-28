@@ -153,9 +153,22 @@ test("version roles, partial carryover, Markdown draft, dirty cancellation and e
     exact: true,
   });
   await draft.getByLabel(new RegExp(a.key + " ·")).check();
+  const generationConfirmation = page
+    .waitForEvent("dialog")
+    .then(async (dialog) => {
+      expect(dialog.type()).toBe("confirm");
+      expect(dialog.message()).toBe("저장하지 않은 변경로그 초안을 바꿀까요?");
+      await dialog.accept();
+    });
   await draft
     .getByRole("button", { name: "선택 이슈로 초안 생성", exact: true })
     .click();
+  await generationConfirmation;
+  const generated = changelogSchema.parse(
+    await (await request.get(`/api/versions/${version.id}/changelog`)).json(),
+  );
+  expect(generated.revision).toBe(1);
+  expect(generated.selectedIssueIds).toEqual([a.id]);
   await expect(page.getByLabel("Markdown 변경로그")).toHaveValue(
     new RegExp(origin),
   );

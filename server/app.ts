@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { AuthManager, type AgentConfig } from "./auth.js";
 import { Store, DomainError } from "./domain.js";
 import { registerReleaseRoutes } from "./routes/releases.js";
+import { registerViewRoutes } from "./routes/views.js";
 import { registerRelationRoutes } from "./routes/relations.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import type { Actor } from "./types.js";
@@ -136,6 +137,7 @@ export function createApp(config: AppConfig) {
   });
   registerSessionRoutes(app, store.sessions);
   registerRelationRoutes(app, store.relations);
+  registerViewRoutes(app, store.views);
   registerReleaseRoutes(app, store.releases);
   app.get("/api/bootstrap", (req, res) =>
     res.json(store.bootstrap(actor(req))),

@@ -139,7 +139,7 @@ const throughV3 = {
     ],
   },
 } as const;
-export const schemaManifests = {
+const throughV4 = {
   ...throughV3,
   4: {
     ...throughV3[3],
@@ -185,7 +185,32 @@ export const schemaManifests = {
     ],
   },
 } as const;
+export const schemaManifests = {
+  ...throughV4,
+  5: {
+    ...throughV4[4],
+    saved_views: [
+      "id",
+      "actorId",
+      "projectId",
+      "name",
+      "query",
+      "revision",
+      "createdAt",
+      "updatedAt",
+    ],
+    view_preferences: [
+      "actorId",
+      "projectId",
+      "revision",
+      "defaultViewId",
+      "favoriteIds",
+    ],
+  },
+} as const;
 export type SchemaVersion = keyof typeof schemaManifests;
 export function isSchemaVersion(value: unknown): value is SchemaVersion {
-  return value === 1 || value === 2 || value === 3 || value === 4;
+  return (
+    value === 1 || value === 2 || value === 3 || value === 4 || value === 5
+  );
 }

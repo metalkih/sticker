@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { readRoute } from "../../client/router.js";
+import { readRoute, navigate } from "../../client/router.js";
 void test("bare session/request deep links infer their screen and unrelated explicit sections never retain invisible modal IDs", () => {
   const dom = new JSDOM("", { url: "http://localhost/#session=run" });
   Object.defineProperty(globalThis, "window", {
@@ -30,6 +30,15 @@ void test("bare session/request deep links infer their screen and unrelated expl
     assert.equal(readRoute().bucket, "done");
     dom.window.location.hash = "section=issues&version=v&tab=fixed";
     assert.equal(readRoute().version, "");
+    dom.window.location.hash = "project=p&view=v";
+    assert.equal(readRoute().view, "v");
+    navigate({ issue: "i" });
+    assert.equal(readRoute().view, "v");
+    navigate({ project: "other" });
+    assert.equal(readRoute().view, "");
+    navigate({ project: "p", view: "v" });
+    navigate({ section: "agents" });
+    assert.equal(readRoute().view, "");
   } finally {
     dom.window.close();
     Reflect.deleteProperty(globalThis, "window");

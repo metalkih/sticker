@@ -39,9 +39,9 @@ for (const version of [1, 2, 3, 4])
     } finally {
       store.close();
     }
-    assert.equal(validateBackup(dir).schemaVersion, 4);
+    assert.equal(validateBackup(dir).schemaVersion, 5);
   });
-void test("future backup refusal reports only implemented schemas v1–v4 without modifying bytes", (t) => {
+void test("future backup refusal reports only implemented schemas v1–v5 without modifying bytes", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "sticker-future-release-"));
   t.after(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -50,9 +50,9 @@ void test("future backup refusal reports only implemented schemas v1–v4 withou
   store.close();
   const path = join(dir, "sticker.sqlite"),
     db = new DatabaseSync(path);
-  db.exec("PRAGMA user_version=5");
+  db.exec("PRAGMA user_version=6");
   db.close();
   const before = readFileSync(path);
-  assert.throws(() => validateBackup(dir), /Expected 1, 2, 3, 4/);
+  assert.throws(() => validateBackup(dir), /Expected 1, 2, 3, 4, 5/);
   assert.deepEqual(readFileSync(path), before);
 });

@@ -38,6 +38,8 @@ jobs:
           printf 'Container base: %s\nRunner: %s %s\n' "$NODE_IMAGE" "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
       - run: npm ci
       - run: npm run build
+      - name: Validate disposable seed and explicit owner release before browser capture
+        run: node scripts/capture-readme.mjs --seed-check
       - run: npx playwright install --with-deps chromium
       - name: Install Korean fonts
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk

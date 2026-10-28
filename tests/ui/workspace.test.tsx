@@ -98,7 +98,7 @@ void test("DOM + real API: login, project/issue persistence, comments, links, st
   const f = await fixture();
   try {
     await f.login();
-    assert.ok(screen.getByText("프로젝트 없음"));
+    assert.ok(await screen.findByText("프로젝트 없음"));
     await f.click("새 프로젝트");
     await f.user.type(
       screen.getByLabelText("프로젝트 이름"),
@@ -159,7 +159,9 @@ void test("DOM + real API: login, project/issue persistence, comments, links, st
     await f.click("취소");
     assert.equal(screen.queryByText("취소한 변경"), null);
     await f.click("보드");
-    await f.click("할 일 이슈 추가");
+    await f.user.click(
+      await screen.findByRole("button", { name: "할 일 이슈 추가" }),
+    );
     assert.equal(
       screen.getByLabelText<HTMLSelectElement>("상태").value,
       "ready",
@@ -284,7 +286,7 @@ void test("DOM + real API: conflicting issue edits preserve drafts and require r
     });
     await f.login();
     await f.user.click(
-      screen.getByRole("button", { name: /CON-1.*원래 제목/ }),
+      await screen.findByRole("button", { name: /CON-1.*원래 제목/ }),
     );
     await screen.findByRole("heading", { name: "원래 제목", level: 2 });
     const panel = screen.getByRole("dialog", { name: "이슈 상세" });
@@ -318,7 +320,7 @@ void test("DOM + real API: conflicting issue edits preserve drafts and require r
       );
     });
     await f.user.click(
-      screen.getByRole("button", { name: /CON-1.*원래 제목/ }),
+      await screen.findByRole("button", { name: /CON-1.*원래 제목/ }),
     );
     await screen.findByRole("heading", { name: "원래 제목", level: 2 });
     await f.click("이슈 편집");
@@ -369,7 +371,7 @@ void test("nested issue/editor teardown restores the original body overflow", as
       });
       await f.login();
       await f.user.click(
-        screen.getByRole("button", { name: /SCR-1.*중첩 창/ }),
+        await screen.findByRole("button", { name: /SCR-1.*중첩 창/ }),
       );
       await screen.findByRole("heading", { name: "중첩 창", level: 2 });
       await f.click("이슈 편집");
@@ -435,7 +437,7 @@ void test("project navigation clears all filters and keyed issue navigation rese
         "",
       );
     }
-    assert.ok(screen.getByRole("button", { name: /TWO-1.*둘째 상세/ }));
+    assert.ok(await screen.findByRole("button", { name: /TWO-1.*둘째 상세/ }));
     act(() => {
       dom.window.location.hash = `project=${first.id}&issue=${one.id}`;
     });
