@@ -114,3 +114,32 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 - 수정 충돌 409는 무조건 재시도하지 말고 `sticker_get_issue`로 최신 revision/내용을 읽은 뒤 조정하세요.
 - 인증 실패 401, 범위/읽기 전용 위반 403은 토큰 설정을 확인하세요. 토큰을 출력해 디버깅하지 마세요.
 - API 주소는 origin만 받습니다. loopback이 아닌 HTTP는 거부하며 HTTPS를 요구합니다. 리다이렉트를 따라가거나 다른 URL에 토큰을 전달하지 않습니다.
+
+## 실행별 세션 기록
+
+`sticker_list_sessions`, `sticker_get_session`, `sticker_report_session_event`, `sticker_list_pending_requests`는 프로젝트 범위와 현재 인증 에이전트 ID를 서버에서 검증합니다. 세션 이벤트는 `eventId`로 재전송 중복을 제거하고, 내용 불일치는 409로 거부합니다. 입력 요청에는 `kind: request`, `requestKind: input|review`를 사용하세요. 에이전트 도구에는 소유자 응답·종결·승인·재개 기능이 없습니다.
+
+예전 상태 보고 도구도 유지하지만 eventId 없는 호출의 재시도 중복 제거는 보장하지 않습니다. 새 호출의 필드·권한·마이그레이션 및 UI 동작은 [에이전트 세션과 사용자 확인함](AGENT-SESSIONS.md)을 참고하세요.
+
+### 이슈 관계
+
+`sticker_get_issue_relations`, `sticker_add_issue_relation`, `sticker_remove_issue_relation`은 같은 프로젝트의 부모·관련·차단 관계를 처리합니다. 변경에는 양끝 이슈의 현재 revision이 필요합니다. 차단 해소는 자동 실행·승인·종결이 아닙니다. 요청 형태와 상태 의미는 [이슈 관계](ISSUE-RELATIONS.md)를 참고하세요.
+
+## 버전 출시 준비도 (schema v4)
+
+`sticker_get_version_readiness`는 목표·발견·수정 이슈와 미완료/done/closed/차단 집계를, `sticker_get_version_changelog`는 저장된 Markdown 초안을 같은 프로젝트 권한으로 읽습니다. 일반 버전 수정에는 `revision`이 필요합니다. 출시 상태 확인은 owner-only 웹/API 흐름이며 에이전트용 출시/외부 발행 도구는 없습니다. [출시 계약](RELEASES.md).
+
+## 프로젝트 이슈 템플릿 (schema 6)
+
+`sticker_list_templates`, `sticker_get_template`, `sticker_preview_template`은 현재 범위의 정의를 읽습니다. `sticker_create_issue`의 `templateId`, 현재 `templateVersion`, `templateValues`, UUID `operationId`로 같은 필수 값 검증을 거쳐 생성합니다. 템플릿 관리/실행/승인 도구는 없습니다. [정확한 생성 및 재시도 계약](ISSUE-TEMPLATES.md).
+
+## 프로젝트·버전 공통 자료 (schema7)
+
+- `sticker_list_resources`: 같은 엄격한 프로젝트/버전/kind/검색 조건으로 권한 내 활성 자료를 조회합니다.
+- `sticker_get_resource`: 자료 ID와 선택 `resourceVersion`으로 상세/이력을 읽습니다. 응답의 `selectedVersion`은 명시한 버전이며 생략하면 현재 내용입니다. tombstone의 현재 내용은null이고 이전 버전으로 자동 대체하지 않습니다.
+- `sticker_get_project_guidance`: 소유자가 지정한 지침을 별도로 읽습니다. 지정이나 내용은 추가 권한·실행 승인이 아닙니다. 에이전트용 지침 지정/해제 도구는 없습니다.
+- `sticker_link_resource`: 현재 `issueRevision`, 자료 ID/버전과 UUID 작업 ID로 참조를 고정합니다. 원본 바이트를 복사하거나 다른 연결을 삭제하지 않습니다.
+- `sticker_record_resource_reference`: 자신의 기록된 세션 결과 이벤트에 실제 참조한 자료 ID와 정확한 버전을 남깁니다. 기록 주체는 서버가 결정합니다.
+- `sticker_upload_resource_file`, `sticker_read_resource_file`: 최대5 MiB의 전달받은 base64 바이트만 등록/읽습니다. 호스트 파일 경로나 URL을 읽지 않습니다. 웹/API의20 MiB 자료는 MCP 한도를 넘으면 웹 다운로드를 사용해야 합니다.
+
+모든 호출은 현재 프로젝트와 연결 이슈/세션 권한을 재확인합니다. 읽기 전용 토큰은 조회만 가능하며, 이미 지정된 지침을 에이전트가 수정/삭제할 수도 없습니다. [데이터·HTTP·불변 버전·백업 계약](RESOURCES.md).

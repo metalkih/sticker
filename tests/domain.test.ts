@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -70,7 +71,11 @@ void test("projects and versions persist and validate duplicate keys, date and o
   const reopened = f.reopen();
   assert.equal(reopened.bootstrap(owner).versions[0].id, v.id);
   assert.equal(
-    reopened.updateVersion(owner, v.id, { state: "released" }).state,
+    reopened.releases.release(owner, v.id, {
+      revision: 1,
+      confirm: true,
+      operationId: randomUUID(),
+    }).version.state,
     "released",
   );
   denies(

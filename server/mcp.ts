@@ -1,4 +1,15 @@
-import { bootstrapSchema, apiErrorSchema } from "./response-schemas.js";
+import { registerResourceTools } from "./mcp/resources.js";
+import { registerTemplateTools } from "./mcp/templates.js";
+import { templateCreateHints } from "./contracts/templates.js";
+import { registerReleaseTools } from "./mcp/releases.js";
+import { registerViewTools } from "./mcp/views.js";
+import { registerRelationTools } from "./mcp/relations.js";
+import { registerSessionTools } from "./mcp/sessions.js";
+import {
+  bootstrapSchema,
+  apiErrorSchema,
+  issueSchema,
+} from "./response-schemas.js";
 /** STDIO adapter only: all authorization, attribution and persistence live in the HTTP domain API. */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -32,7 +43,7 @@ const projectFields = {
 const versionFields = {
   name: z.string().min(1).max(160).optional(),
   description: z.string().max(20_000).optional(),
-  state: z.enum(["planned", "released", "archived"]).optional(),
+  state: z.enum(["planned", "archived"]).optional(),
   dueDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -53,6 +64,7 @@ class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public fields?: Record<string, string>,
   ) {
     super(message);
   }
@@ -138,6 +150,13 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
         typeof error.error === "string"
           ? scrub(error.error)
           : `API HTTP ${String(response.status)}`,
+        error.fields
+          ? Object.fromEntries(
+              Object.entries(error.fields)
+                .slice(0, 20)
+                .map(([key, value]) => [scrub(key), scrub(value)]),
+            )
+          : undefined,
       );
     }
     return response;
@@ -167,6 +186,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
             error: scrub(error.message),
             code: error.code,
             status: error.status,
+            ...(error.fields ? { fields: error.fields } : {}),
           }),
           isError: true,
         };
@@ -202,6 +222,19 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
       async (args) => safely(async () => result(await run(args))),
     );
   }
+  registerResourceTools({
+    tool,
+    json,
+    request,
+    fail: (status, code, message) => {
+      throw new ApiError(status, code, message);
+    },
+  });
+  registerTemplateTools({ tool, json });
+  registerSessionTools({ tool, json });
+  registerRelationTools({ tool, json });
+  registerViewTools({ tool, json });
+  registerReleaseTools({ tool, json });
   const e = encodeURIComponent;
   tool(
     "sticker_list_projects",
@@ -236,39 +269,9 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
   tool(
     "sticker_update_version",
     "버전 상태와 일정을 수정합니다.",
-    { versionId: id, ...versionFields },
+    { versionId: id, revision: z.number().int().positive(), ...versionFields },
     async ({ versionId, ...body }) =>
       json(`/api/versions/${e(versionId)}`, "PATCH", body),
-  );
-  tool(
-    "sticker_list_issues",
-    "접근 가능한 이슈를 조회/필터합니다. ready/waiting 이슈를 실행하지 않습니다.",
-    {
-      projectId: id.optional(),
-      status: z
-        .enum(["backlog", "ready", "in_progress", "waiting", "done", "closed"])
-        .optional(),
-      assignee: z.string().optional(),
-      query: z.string().max(200).optional(),
-    },
-    async (a) =>
-      (await bootstrap()).issues.filter(
-        (i: {
-          projectId: string;
-          status: string;
-          assignee: string;
-          title: string;
-          key: string;
-        }) =>
-          (!a.projectId || i.projectId === a.projectId) &&
-          (!a.status || i.status === a.status) &&
-          (!a.assignee || i.assignee === a.assignee) &&
-          (!a.query ||
-            `${i.key} ${i.title}`
-              .toLowerCase()
-              .includes(a.query.toLowerCase())),
-      ),
-    true,
   );
   tool(
     "sticker_get_issue",
@@ -279,9 +282,14 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
   );
   tool(
     "sticker_create_issue",
-    "이슈를 만듭니다. 담당자/상태는 기록일 뿐 실행 명령이 아닙니다.",
-    { projectId: id, ...issueFields, title: issueFields.title.unwrap() },
-    async (a) => json("/api/issues", "POST", a),
+    "이슈를 만듭니다. 템플릿 사용 시 현재 templateVersion과 operationId UUID가 필요합니다. 담당자/상태는 실행 명령이 아닙니다.",
+    {
+      projectId: id,
+      ...issueFields,
+      title: issueFields.title.unwrap(),
+      ...templateCreateHints,
+    },
+    async (a) => issueSchema.parse(await json("/api/issues", "POST", a)),
   );
   tool(
     "sticker_update_issue",

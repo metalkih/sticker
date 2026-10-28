@@ -9,3 +9,7 @@ createRoot(root).render(
     <App />
   </React.StrictMode>,
 );
+
+import "./features/relations/relations.css";
+
+import "./features/releases/releases.css";

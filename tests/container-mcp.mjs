@@ -40,8 +40,10 @@ try {
   });
   assert.ok(!result.isError, "Configured read-only agent must authenticate");
   const projects = JSON.parse(result.content[0].text);
-  assert.equal(projects.length, 1);
-  assert.equal(projects[0].name, "Portable fixture");
+  assert.deepEqual(projects.map((p) => p.name).sort(), [
+    "Container template fixture",
+    "Portable fixture",
+  ]);
   const denied = await client.callTool({
     name: "sticker_create_issue",
     arguments: { projectId: projects[0].id, title: "Read-only must refuse" },

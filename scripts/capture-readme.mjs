@@ -1,5 +1,6 @@
 /** README screenshots from the real app with disposable, fictional data only. */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,13 +38,18 @@ app.store.createProject(owner, {
   color: "#b8d9fa",
   description: "사진과 한 줄 기록을 모으는 가상의 앱 프로젝트.",
 });
-const oldVersion = app.store.createVersion(owner, {
+const oldVersionPlan = app.store.createVersion(owner, {
   projectId: project.id,
   name: "v0.1 · 첫 메모",
-  state: "released",
+  state: "planned",
   description: "메모 작성과 목록의 기본 흐름",
   dueDate: "2026-10-20",
 });
+const oldVersion = app.store.releases.release(owner, oldVersionPlan.id, {
+  revision: oldVersionPlan.revision,
+  operationId: randomUUID(),
+  confirm: true,
+}).version;
 const version = app.store.createVersion(owner, {
   projectId: project.id,
   name: "v0.2 · 더 쉽게 찾기",
@@ -122,6 +128,15 @@ try {
   if (process.argv.includes("--seed-check")) {
     assert.equal(app.store.bootstrap(owner).issues.length, 8);
     assert.equal(app.store.getIssue(owner, detail.id).attachments.length, 1);
+    const released = app.store.releases.readiness(owner, oldVersion.id);
+    assert.equal(released.version.state, "released");
+    assert.equal(released.releaseHistory.length, 1);
+    assert.equal(released.releaseHistory[0].authorId, "owner");
+    assert.equal(released.releaseHistory[0].fromState, "planned");
+    assert.equal(
+      released.releaseHistory[0].reviewedRevision,
+      oldVersionPlan.revision,
+    );
     console.log("Disposable screenshot fixture verified.");
   } else {
     browser = await chromium.launch();

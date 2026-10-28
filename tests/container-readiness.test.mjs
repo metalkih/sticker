@@ -29,6 +29,22 @@ test("verification waits for healthy service after backup restarts before its ne
       "tests/container-smoke.mjs",
       join(root, "tests/container-smoke.mjs"),
     );
+    copyFileSync(
+      "tests/container-release-smoke.mjs",
+      join(root, "tests/container-release-smoke.mjs"),
+    );
+    copyFileSync(
+      "tests/container-views-smoke.mjs",
+      join(root, "tests/container-views-smoke.mjs"),
+    );
+    copyFileSync(
+      "tests/container-templates-smoke.mjs",
+      join(root, "tests/container-templates-smoke.mjs"),
+    );
+    copyFileSync(
+      "tests/container-resources-smoke.mjs",
+      join(root, "tests/container-resources-smoke.mjs"),
+    );
     writeFileSync(
       join(root, "source/sticker.sqlite"),
       "Fixture archive; not restored in this test",

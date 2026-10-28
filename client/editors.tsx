@@ -1,4 +1,16 @@
 import {
+  issueTemplateSchema,
+  templateDetailSchema,
+  templateAssigneeSchema,
+  validateTemplateValues,
+  type TemplateDetail,
+  type TemplateValues,
+} from "../server/contracts/templates.js";
+import { useViewResource } from "./features/views/useViewResource.js";
+import { TemplateIssueFields } from "./features/templates/TemplateIssueFields.js";
+import { useDraftGuard } from "./features/templates/useDraftGuard.js";
+import { readinessSchema } from "../server/contracts/releases.js";
+import {
   projectSchema,
   issueSchema,
   issueDetailSchema,
@@ -9,6 +21,8 @@ import { STATUSES } from "../server/types.js";
 import { api, json, errorText, ApiError } from "./api.js";
 import { Modal, Field, ErrorNotice } from "./components.js";
 import { statusNames, priorityNames, versionStateNames } from "./format.js";
+const issueTemplateListSchema = issueTemplateSchema.array(),
+  templateAssigneesSchema = templateAssigneeSchema.array();
 const colors = [
   "#d7f45b",
   "#bcb0ee",
@@ -64,9 +78,6 @@ export function ProjectEditor({
         }}
         className="editor-form"
       >
-        <p className="form-intro">
-          흩어진 아이디어를 하나의 작업 공간에 붙여 보세요.
-        </p>
         <Field label="프로젝트 이름">
           <input
             required
@@ -75,7 +86,7 @@ export function ProjectEditor({
             onChange={(e) => {
               setName(e.target.value);
             }}
-            placeholder="어떤 프로젝트인가요?"
+            placeholder="프로젝트 이름"
           />
         </Field>
         <Field label="프로젝트 키">
@@ -89,7 +100,7 @@ export function ProjectEditor({
             }}
             placeholder="예: STK"
           />
-          <small>영문 대문자로 시작하는 2–8자. 이슈 번호에 사용해요.</small>
+          <small>A–Z로 시작 · A–Z/0–9 · 2–8자</small>
         </Field>
         <Field label="프로젝트 설명">
           <textarea
@@ -99,7 +110,7 @@ export function ProjectEditor({
             }}
             rows={3}
             maxLength={10000}
-            placeholder="목표와 맥락을 짧게 남겨 주세요."
+            placeholder="목표 · 범위"
           />
         </Field>
         <fieldset className="color-field">
@@ -141,12 +152,14 @@ export function VersionEditor({
   projectId,
   onClose,
   onSaved,
+  onReview,
 }: {
   version?: Version;
   data: Bootstrap;
   projectId?: string;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onReview?: (version: Version) => void;
 }) {
   const [project, setProject] = useState(
     version?.projectId || projectId || data.projects[0]?.id || "",
@@ -157,6 +170,9 @@ export function VersionEditor({
     version?.state || "planned",
   );
   const [dueDate, setDueDate] = useState(version?.dueDate?.slice(0, 10) || "");
+  const [revision, setRevision] = useState(version?.revision ?? 1);
+  const [latest, setLatest] = useState<Version | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
@@ -168,16 +184,18 @@ export function VersionEditor({
       await api(version ? `/versions/${version.id}` : "/versions", {
         method: version ? "PATCH" : "POST",
         body: json({
-          ...(version ? {} : { projectId: project }),
+          ...(version ? { revision } : { projectId: project }),
           name,
           description,
-          state,
+          ...(state === "released" ? {} : { state }),
           dueDate: dueDate || null,
         }),
       });
       await onSaved();
     } catch (e) {
       setError(errorText(e));
+      if (e instanceof ApiError && e.code === "REVISION_CONFLICT")
+        setConflict(true);
     } finally {
       setBusy(false);
     }
@@ -219,18 +237,35 @@ export function VersionEditor({
             />
           </Field>
           <Field label="버전 상태">
-            <select
-              value={state}
-              onChange={(e) => {
-                setState(e.target.value as Version["state"]);
-              }}
-            >
-              {Object.entries(versionStateNames).map(([v, n]) => (
-                <option value={v} key={v}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            {version?.state === "released" ? (
+              <span>{versionStateNames.released}</span>
+            ) : (
+              <select
+                value={state}
+                onChange={(e) => {
+                  setState(e.target.value as Version["state"]);
+                }}
+              >
+                {Object.entries(versionStateNames)
+                  .filter(([value]) => value !== "released")
+                  .map(([v, n]) => (
+                    <option value={v} key={v}>
+                      {n}
+                    </option>
+                  ))}
+              </select>
+            )}
+            {version && onReview && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  onReview(version);
+                }}
+              >
+                출시 검토
+              </button>
+            )}
           </Field>
           <Field label="목표 날짜">
             <input
@@ -254,11 +289,63 @@ export function VersionEditor({
           />
         </Field>
         <ErrorNotice message={error} />
+        {conflict && version && (
+          <div className="release-conflict">
+            {latest ? (
+              <>
+                <span>
+                  서버 최신 버전: {latest.name} · r{latest.revision}
+                </span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setRevision(latest.revision);
+                    setConflict(false);
+                    setLatest(null);
+                    setError("");
+                  }}
+                >
+                  최신 버전 기준으로 초안 유지
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      setLatest(
+                        (
+                          await api(
+                            `/versions/${version.id}/readiness`,
+                            undefined,
+                            readinessSchema,
+                          )
+                        ).version,
+                      );
+                    } catch (e) {
+                      setError(errorText(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                최신 버전 검토
+              </button>
+            )}
+          </div>
+        )}
+
         <footer className="form-actions">
           <button type="button" className="button secondary" onClick={onClose}>
             취소
           </button>
-          <button className="button primary" disabled={busy}>
+          <button className="button primary" disabled={busy || conflict}>
             {busy ? "저장 중…" : version ? "변경 저장" : "버전 만들기"}
           </button>
         </footer>
@@ -303,10 +390,96 @@ export function IssueEditor({
   const [conflict, setConflict] = useState(false);
   const [latest, setLatest] = useState<Issue | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const templates = useViewResource(
+    `/projects/${encodeURIComponent(project)}/templates`,
+    issueTemplateListSchema,
+    !issue && !!project,
+  );
+  const directory = useViewResource(
+    `/projects/${encodeURIComponent(project)}/template-assignees`,
+    templateAssigneesSchema,
+    !issue && !!project,
+  );
+  const [template, setTemplate] = useState<TemplateDetail | null>(null);
+  const [templateValues, setTemplateValues] = useState<TemplateValues>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateConflict, setTemplateConflict] = useState(false);
+  const [operationId] = useState(() => crypto.randomUUID());
+  const dirty = !!template;
+  const guard = useDraftGuard(dirty, busy || templateBusy);
+  const close = () => {
+    guard.leave(onClose);
+  };
   const versions = data.versions.filter((v) => v.projectId === project);
+  const hasTemplateOverwrite =
+    !!template ||
+    description !== (issue?.description ?? "") ||
+    status !== (issue?.status ?? initialStatus) ||
+    priority !== (issue?.priority ?? "medium") ||
+    assignee !== (issue?.assignee ?? "") ||
+    labels !== (issue?.labels.join(", ") ?? "") ||
+    target !== (issue?.targetVersionId ?? "") ||
+    found !== (issue?.foundVersionId ?? "") ||
+    fixed !== (issue?.fixedVersionId ?? "");
+  async function selectTemplate(id: string) {
+    if (templateBusy || busy) return;
+    if (
+      hasTemplateOverwrite &&
+      !window.confirm("본문과 기본값을 선택한 템플릿으로 바꿀까요?")
+    )
+      return;
+    setError("");
+    if (!id) {
+      setTemplate(null);
+      setTemplateValues({});
+      setFieldErrors({});
+      setTemplateConflict(false);
+      return;
+    }
+    setTemplateBusy(true);
+    try {
+      const next = await api(
+        `/templates/${encodeURIComponent(id)}`,
+        undefined,
+        templateDetailSchema,
+      );
+      if (next.template.projectId !== project)
+        throw new Error("다른 프로젝트의 템플릿입니다.");
+      const defaults = next.selectedVersion.defaults;
+      setTemplate(next);
+      setTemplateValues({
+        ...(defaults.foundVersionId
+          ? { foundVersionId: defaults.foundVersionId }
+          : {}),
+      });
+      setFieldErrors({});
+      setDescription(next.selectedVersion.body);
+      setStatus(defaults.status ?? initialStatus);
+      setPriority(defaults.priority ?? "medium");
+      setAssignee(defaults.assignee ?? "");
+      setLabels(defaults.labels?.join(", ") ?? "");
+      setTarget(defaults.targetVersionId ?? "");
+      setFound(defaults.foundVersionId ?? "");
+      setFixed(defaults.fixedVersionId ?? "");
+      setTemplateConflict(false);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
   async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (busy || conflict) return;
+    if (busy || conflict || templateBusy || templateConflict) return;
+    if (template) {
+      const errors = validateTemplateValues(
+        template.selectedVersion.requiredFields,
+        templateValues,
+      );
+      setFieldErrors(errors);
+      if (Object.keys(errors).length) return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -317,6 +490,14 @@ export function IssueEditor({
           body: json({
             ...(issue ? { revision } : { projectId: project }),
             title,
+            ...(template
+              ? {
+                  templateId: template.template.id,
+                  templateVersion: template.selectedVersion.version,
+                  templateValues,
+                  operationId,
+                }
+              : {}),
             description,
             status,
             priority,
@@ -335,6 +516,9 @@ export function IssueEditor({
       await onSaved(result);
     } catch (e) {
       setError(errorText(e));
+      if (e instanceof ApiError && e.fields) setFieldErrors(e.fields);
+      if (e instanceof ApiError && e.code === "TEMPLATE_VERSION_CONFLICT")
+        setTemplateConflict(true);
       if (e instanceof ApiError && e.code === "REVISION_CONFLICT") {
         setConflict(true);
         setLatest(null);
@@ -361,7 +545,7 @@ export function IssueEditor({
   return (
     <Modal
       title={issue ? `${issue.key} 편집` : "새로운 스티커"}
-      onClose={onClose}
+      onClose={close}
       wide
     >
       <form
@@ -370,121 +554,229 @@ export function IssueEditor({
         }}
         className="editor-form"
       >
-        <Field label="이슈 제목">
-          <input
-            className="title-input"
-            required
-            maxLength={300}
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-            }}
-            placeholder="무엇을 해결할까요?"
-          />
-        </Field>
-        <Field label="설명">
-          <textarea
-            rows={5}
-            maxLength={50000}
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
-            }}
-            placeholder="해야 할 일, 성공 기준, 참고할 맥락을 남겨 주세요."
-          />
-        </Field>
-        <div className="form-grid">
-          <Field label="프로젝트">
-            <select
-              value={project}
-              disabled={!!issue}
-              onChange={(e) => {
-                setProject(e.target.value);
-                setTarget("");
-                setFound("");
-                setFixed("");
-              }}
-              required
-            >
-              {data.projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="상태">
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value as Issue["status"]);
-              }}
-            >
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {statusNames[s]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="우선순위">
-            <select
-              value={priority}
-              onChange={(e) => {
-                setPriority(e.target.value as Issue["priority"]);
-              }}
-            >
-              {Object.entries(priorityNames).map(([v, n]) => (
-                <option key={v} value={v}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="담당자">
+        <fieldset
+          className="issue-editor-fields"
+          disabled={busy || templateBusy}
+        >
+          <Field label="이슈 제목">
             <input
-              value={assignee}
+              className="title-input"
+              required
+              maxLength={300}
+              value={title}
               onChange={(e) => {
-                setAssignee(e.target.value);
+                setTitle(e.target.value);
               }}
-              maxLength={120}
-              placeholder="나, Codex…"
+              placeholder="이슈 제목"
             />
           </Field>
-        </div>
-        {status === "waiting" && (
-          <p className="inline-note">
-            승인 대기는 기록용 상태예요. 자동 실행하거나 에이전트를 시작하지
-            않아요.
-          </p>
-        )}
-        {status === "done" && (
-          <p className="inline-note">
-            구현 완료 후 소유자가 검토하고 ‘소유자 종료’로 마무리하세요.
-          </p>
-        )}
-        <div className="form-grid three">
-          <Field label="목표 버전">{versionSelect(target, setTarget)}</Field>
-          <Field label="발견 버전">{versionSelect(found, setFound)}</Field>
-          <Field label="수정 버전">{versionSelect(fixed, setFixed)}</Field>
-        </div>
-        <Field label="라벨">
-          <input
-            value={labels}
-            onChange={(e) => {
-              setLabels(e.target.value);
-            }}
-            placeholder="버그, 디자인, 기능 (쉼표로 구분)"
-            maxLength={500}
-          />
-        </Field>
+          {!issue && (
+            <>
+              <Field label="이슈 템플릿">
+                <select
+                  value={template?.template.id ?? ""}
+                  disabled={templateBusy || busy || templates.loading}
+                  onChange={(e) => {
+                    void selectTemplate(e.target.value);
+                  }}
+                >
+                  <option value="">템플릿 없이 작성</option>
+                  {template &&
+                    !templates.value?.some(
+                      (t) => t.id === template.template.id,
+                    ) && (
+                      <option value={template.template.id}>
+                        {template.template.name} · 선택됨
+                      </option>
+                    )}
+                  {templates.value?.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} · v{t.currentVersion}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {templates.loading && <p role="status">템플릿 불러오는 중…</p>}
+              <ErrorNotice message={templates.error} />
+              {templates.error && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    void templates.refresh();
+                  }}
+                >
+                  템플릿 목록 재시도
+                </button>
+              )}
+              {templateBusy && <p role="status">템플릿 적용 중…</p>}
+            </>
+          )}
+          <Field label="설명">
+            <textarea
+              rows={5}
+              maxLength={50000}
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+              }}
+              placeholder="작업 내용 · 완료 기준"
+            />
+          </Field>
+          {template && (
+            <TemplateIssueFields
+              detail={template}
+              values={templateValues}
+              errors={fieldErrors}
+              versions={versions}
+              body={description}
+              onChange={(field, value) => {
+                setTemplateValues((prev) => ({ ...prev, [field]: value }));
+                setFieldErrors((prev) => ({ ...prev, [field]: "" }));
+                if (field === "foundVersionId") setFound(value);
+              }}
+            />
+          )}
+          <div className="form-grid">
+            <Field label="프로젝트">
+              <select
+                value={project}
+                disabled={!!issue}
+                onChange={(e) => {
+                  if (
+                    hasTemplateOverwrite &&
+                    !window.confirm("프로젝트와 템플릿 기본값을 바꿀까요?")
+                  )
+                    return;
+                  setProject(e.target.value);
+                  if (template) {
+                    setDescription("");
+                    setStatus(initialStatus);
+                    setPriority("medium");
+                    setAssignee("");
+                    setLabels("");
+                  }
+                  setTemplate(null);
+                  setTemplateValues({});
+                  setFieldErrors({});
+                  setTemplateConflict(false);
+                  setTarget("");
+                  setFound("");
+                  setFixed("");
+                }}
+                required
+              >
+                {data.projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="상태">
+              <select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value as Issue["status"]);
+                }}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {statusNames[s]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="우선순위">
+              <select
+                value={priority}
+                onChange={(e) => {
+                  setPriority(e.target.value as Issue["priority"]);
+                }}
+              >
+                {Object.entries(priorityNames).map(([v, n]) => (
+                  <option key={v} value={v}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="담당자">
+              {template ? (
+                <select
+                  value={assignee}
+                  onChange={(e) => {
+                    setAssignee(e.target.value);
+                  }}
+                >
+                  <option value="">미지정</option>
+                  {assignee &&
+                    !directory.value?.some((a) => a.id === assignee) && (
+                      <option value={assignee}>사용 불가 · {assignee}</option>
+                    )}
+                  {directory.value?.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={assignee}
+                  onChange={(e) => {
+                    setAssignee(e.target.value);
+                  }}
+                  maxLength={120}
+                  placeholder="나, Codex…"
+                />
+              )}
+            </Field>
+          </div>
+          <div className="form-grid three">
+            <Field label="목표 버전">{versionSelect(target, setTarget)}</Field>
+            <Field label="발견 버전">
+              {versionSelect(found, (value) => {
+                setFound(value);
+                if (template)
+                  setTemplateValues((prev) => ({
+                    ...prev,
+                    foundVersionId: value,
+                  }));
+              })}
+            </Field>
+            <Field label="수정 버전">{versionSelect(fixed, setFixed)}</Field>
+          </div>
+          <Field label="라벨">
+            <input
+              value={labels}
+              onChange={(e) => {
+                setLabels(e.target.value);
+              }}
+              placeholder="버그, 디자인, 기능 (쉼표로 구분)"
+              maxLength={500}
+            />
+          </Field>
+        </fieldset>
         <ErrorNotice message={error} />
+        {template && <ErrorNotice message={directory.error} />}
+        {templateConflict && template && (
+          <div className="template-conflict">
+            <p role="status">템플릿 변경됨 · 초안 보존됨</p>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={templateBusy}
+              onClick={() => {
+                void selectTemplate(template.template.id);
+              }}
+            >
+              최신 템플릿 적용
+            </button>
+          </div>
+        )}
         {conflict && issue && (
           <div className="conflict-review">
-            <p>
-              입력한 초안은 유지돼요. 서버의 최신 변경을 확인하고, 검토를 마친
-              뒤 직접 다시 저장해 주세요.
-            </p>
+            <p role="status">충돌 · 초안 보존됨</p>
             {!latest ? (
               <button
                 type="button"
@@ -539,10 +831,7 @@ export function IssueEditor({
                     2,
                   )}
                 </pre>
-                <p>
-                  아래 버튼은 아직 저장하지 않아요. 초안으로 덮어쓸 내용을
-                  확인한 후 ‘변경 저장’을 눌러 주세요.
-                </p>
+                <p>초안 미저장</p>
                 <button
                   type="button"
                   className="button secondary"
@@ -560,10 +849,13 @@ export function IssueEditor({
           </div>
         )}
         <footer className="form-actions">
-          <button type="button" className="button secondary" onClick={onClose}>
+          <button type="button" className="button secondary" onClick={close}>
             취소
           </button>
-          <button className="button primary" disabled={busy || conflict}>
+          <button
+            className="button primary"
+            disabled={busy || conflict || templateBusy || templateConflict}
+          >
             {busy ? "저장 중…" : issue ? "변경 저장" : "이슈 만들기"}
           </button>
         </footer>

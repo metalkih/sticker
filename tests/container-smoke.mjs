@@ -86,15 +86,24 @@ if (phase === "initialize") {
   );
 } else {
   const state = await (await api("/api/bootstrap")).json();
-  assert.equal(state.projects.length, 1);
-  assert.equal(state.projects[0].name, "Portable fixture");
-  assert.equal(
-    state.issues.length,
-    1,
-    "Backup restore must replace later writes",
+  assert.deepEqual(state.projects.map((p) => p.name).sort(), [
+    "Container template fixture",
+    "Portable fixture",
+  ]);
+  assert.deepEqual(
+    state.issues.map((i) => i.title).sort(),
+    [
+      "Container shared resource reference",
+      "Container template provenance fixture",
+      "Persisted container issue",
+    ],
+    "Backup restore must replace later writes and preserve every fixture issue",
   );
-  assert.equal(state.issues[0].title, "Persisted container issue");
-  const detail = await (await api(`/api/issues/${state.issues[0].id}`)).json();
+  const core = state.issues.find(
+    (i) => i.title === "Persisted container issue",
+  );
+  assert.ok(core);
+  const detail = await (await api(`/api/issues/${core.id}`)).json();
   assert.equal(detail.attachments.length, 1);
   const path = `/api/attachments/${detail.attachments[0].id}/file`;
   assert.equal((await fetch(base + path)).status, 401, "Files remain private");

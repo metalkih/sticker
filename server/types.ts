@@ -24,6 +24,7 @@ export interface Project {
   updatedAt: string;
 }
 export interface Version {
+  revision: number;
   id: string;
   projectId: string;
   name: string;
@@ -34,6 +35,8 @@ export interface Version {
   updatedAt: string;
 }
 export interface Issue {
+  templateId?: string | null;
+  templateVersion?: number | null;
   id: string;
   projectId: string;
   key: string;
@@ -104,3 +107,28 @@ export interface IssueDetail {
   activity: Activity[];
   attachments: Attachment[];
 }
+
+export type {
+  AgentSession,
+  SessionEvent,
+  SessionRequest,
+  SessionDetail,
+} from "./contracts/sessions.js";
+
+export type {
+  VersionReadiness,
+  Changelog,
+  CarryoverInput,
+  CarryoverResult,
+  CarryoverPreview,
+  ReleaseResult,
+} from "./contracts/releases.js";
+
+export type {
+  IssueTemplate,
+  TemplateVersion,
+  TemplateDetail,
+  TemplateValues,
+  TemplateDefaults,
+  TemplateField,
+} from "./contracts/templates.js";

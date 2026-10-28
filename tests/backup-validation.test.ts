@@ -112,7 +112,7 @@ void test("validator rejects unrelated SQLite even if it claims supported user_v
 void test("validator rejects future Sticker schema versions", () => {
   const f = fixture();
   try {
-    changeDb(f.dbPath, "PRAGMA user_version=2;");
+    changeDb(f.dbPath, "PRAGMA user_version=999;");
     rejection(f.dir, /version/i);
   } finally {
     f.close();
@@ -177,5 +177,66 @@ void test("validator rejects a symlink database or uploads directory", () => {
     rejection(f.dir, /directory|link/i);
   } finally {
     f.close();
+  }
+});
+void test("v2 validator requires session columns without migrating or mutating a damaged backup", () => {
+  const f = fixture();
+  try {
+    changeDb(f.dbPath, "ALTER TABLE session_events DROP COLUMN message;");
+    rejection(f.dir, /column|schema/i);
+  } finally {
+    f.close();
+  }
+});
+void test("validator rejects oversized recorded attachments before accepting their bytes", () => {
+  const f = fixture();
+  try {
+    changeDb(f.dbPath, "UPDATE attachments SET size=20971521;");
+    rejection(f.dir, /size.*invalid/i);
+  } finally {
+    f.close();
+  }
+});
+void test("v6 backup requires immutable template version columns", () => {
+  const f = fixture();
+  try {
+    changeDb(f.dbPath, "ALTER TABLE template_versions DROP COLUMN body;");
+    rejection(f.dir, /column|schema/i);
+  } finally {
+    f.close();
+  }
+});
+void test("v6 validator rejects malformed template definitions and broken immutable provenance", () => {
+  for (const corruption of [
+    "UPDATE template_versions SET requiredFields='[\"arbitrary\"]'",
+    "UPDATE template_versions SET defaults='not-json'",
+    "UPDATE issue_templates SET currentVersion=99",
+    "UPDATE issues SET templateVersion=99 WHERE templateId IS NOT NULL",
+  ]) {
+    const f = fixture();
+    try {
+      const store = new Store(f.dir);
+      const template = store.templates.create(owner, {
+        projectId: f.issue.projectId,
+        name: "검증 양식",
+        body: "본문",
+        requiredFields: [],
+        defaults: {},
+        operationId: randomUUID(),
+      });
+      store.createIssue(owner, {
+        projectId: f.issue.projectId,
+        title: "연결 본문",
+        templateId: template.template.id,
+        templateVersion: 1,
+        templateValues: {},
+        operationId: randomUUID(),
+      });
+      store.close();
+      changeDb(f.dbPath, corruption);
+      rejection(f.dir, /template|provenance|required|json/i);
+    } finally {
+      f.close();
+    }
   }
 });

@@ -4,6 +4,8 @@ import {
   issueSchema,
   attachmentSchema,
   issueDetailSchema,
+  sessionDetailSchema,
+  sessionRequestSchema,
 } from "../server/response-schemas.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -37,6 +39,7 @@ void test("a full server restart preserves issues/comments/files while expiring 
     return {
       call,
       login,
+      instance,
       stop: async () => {
         await new Promise<void>((r, j) =>
           server.close((e) => {
@@ -93,6 +96,25 @@ void test("a full server restart preserves issues/comments/files while expiring 
       attachmentSchema,
     );
     assert.ok(a.id);
+    const session = running.instance.store.sessions.report(
+      {
+        id: "restart-agent",
+        name: "검증 에이전트",
+        role: "agent",
+        canWrite: true,
+        projectIds: [p.id],
+      },
+      {
+        projectId: p.id,
+        issueId: i.id,
+        externalSessionId: "persistent-run",
+        eventId: "pending-question",
+        kind: "request",
+        requestKind: "input",
+        message: "재시작 후에도 남는 질문",
+      },
+    );
+    assert.ok(session.request);
     await running.stop();
     running = await start();
     assert.equal(
@@ -106,6 +128,19 @@ void test("a full server restart preserves issues/comments/files while expiring 
       }),
       issueDetailSchema,
     );
+    const sessionDetail = await readJson(
+      await running.call(`/api/sessions/${session.session.id}`, {
+        headers: { cookie: secondCookie },
+      }),
+      sessionDetailSchema,
+    );
+    assert.equal(sessionDetail.events[0].message, "재시작 후에도 남는 질문");
+    const inbox = await readJson(
+      await running.call("/api/inbox", { headers: { cookie: secondCookie } }),
+      sessionRequestSchema.array(),
+    );
+    assert.equal(inbox[0].id, session.request.id);
+    assert.equal(inbox[0].status, "pending");
     assert.equal(detail.issue.title, "다시 켜도 남는 스티커");
     assert.equal(detail.issue.status, "waiting");
     assert.equal(detail.comments[0].body, "재시작 전에 기록한 결과");

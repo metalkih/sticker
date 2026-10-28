@@ -1,82 +1,19 @@
+import { validateResourceVersionFiles } from "./resource-files.js";
+import {
+  issueTemplateSchema,
+  templateVersionSchema,
+} from "./contracts/templates.js";
 import { DatabaseSync } from "node:sqlite";
 import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import {
+  schemaManifests,
+  isSchemaVersion,
+  type SchemaVersion,
+} from "./schema-manifest.js";
 
-/** Keep synchronized with schema version 1 in db.ts. Never initialize/migrate a backup here. */
-const requiredColumns: Record<string, readonly string[]> = {
-  projects: [
-    "id",
-    "key",
-    "name",
-    "description",
-    "color",
-    "nextIssue",
-    "createdAt",
-    "updatedAt",
-  ],
-  versions: [
-    "id",
-    "projectId",
-    "name",
-    "description",
-    "state",
-    "dueDate",
-    "createdAt",
-    "updatedAt",
-  ],
-  issues: [
-    "id",
-    "projectId",
-    "key",
-    "title",
-    "description",
-    "status",
-    "priority",
-    "assignee",
-    "targetVersionId",
-    "foundVersionId",
-    "fixedVersionId",
-    "labels",
-    "revision",
-    "createdAt",
-    "updatedAt",
-  ],
-  comments: ["id", "issueId", "body", "authorId", "authorName", "createdAt"],
-  activity: [
-    "id",
-    "issueId",
-    "action",
-    "detail",
-    "authorId",
-    "authorName",
-    "createdAt",
-  ],
-  attachments: [
-    "id",
-    "issueId",
-    "kind",
-    "name",
-    "url",
-    "storageKey",
-    "mimeType",
-    "size",
-    "authorId",
-    "authorName",
-    "createdAt",
-  ],
-  agent_reports: [
-    "id",
-    "agentId",
-    "agentName",
-    "projectId",
-    "issueId",
-    "state",
-    "message",
-    "reportedAt",
-  ],
-};
 function requireRegularFile(path: string, label: string) {
   let stat;
   try {
@@ -91,7 +28,7 @@ function requireRegularFile(path: string, label: string) {
 
 /** Validate extracted bytes before restore replaces anything. This function only opens SQLite read-only. */
 export function validateBackup(stageDir: string): {
-  schemaVersion: 1;
+  schemaVersion: SchemaVersion;
   fileCount: number;
 } {
   const root = resolve(stageDir),
@@ -108,9 +45,9 @@ export function validateBackup(stageDir: string): {
   try {
     // Do not trust user_version alone: unrelated SQLite databases may also use 1.
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
-    if (version !== 1)
+    if (!isSchemaVersion(version))
       throw new Error(
-        `Unsupported Sticker schema version: ${String(version)}. Expected 1.`,
+        `Unsupported Sticker schema version: ${String(version)}. Expected ${Object.keys(schemaManifests).join(", ")}.`,
       );
     const tables = new Set(
       db
@@ -118,7 +55,7 @@ export function validateBackup(stageDir: string): {
         .all()
         .map((row) => String(row.name)),
     );
-    for (const [table, columns] of Object.entries(requiredColumns)) {
+    for (const [table, columns] of Object.entries(schemaManifests[version])) {
       if (!tables.has(table))
         throw new Error(
           `Invalid Sticker schema: required table ${table} is missing.`,
@@ -141,6 +78,54 @@ export function validateBackup(stageDir: string): {
       throw new Error("Sticker database integrity_check failed.");
     if (db.prepare("PRAGMA foreign_key_check").all().length > 0)
       throw new Error("Sticker database foreign_key_check failed.");
+    if (version >= 6) {
+      try {
+        const templates = issueTemplateSchema
+          .array()
+          .parse(db.prepare("SELECT * FROM issue_templates").all());
+        const versions = db
+          .prepare("SELECT * FROM template_versions")
+          .all()
+          .map((row) => {
+            const requiredFields: unknown = JSON.parse(
+                z.string().parse(row.requiredFields),
+              ),
+              defaults: unknown = JSON.parse(z.string().parse(row.defaults));
+            return templateVersionSchema.parse({
+              ...row,
+              requiredFields,
+              defaults,
+            });
+          });
+        for (const template of templates)
+          if (
+            !versions.some(
+              (item) =>
+                item.templateId === template.id &&
+                item.version === template.currentVersion,
+            )
+          )
+            throw new Error("Invalid current version");
+        for (const table of [
+          "template_operations",
+          "issue_creation_operations",
+        ] as const)
+          for (const row of db.prepare(`SELECT payload FROM ${table}`).all()) {
+            const payload: unknown = JSON.parse(z.string().parse(row.payload));
+            z.record(z.string(), z.unknown()).parse(payload);
+          }
+      } catch {
+        throw new Error("Invalid template version data in backup.");
+      }
+      if (
+        db
+          .prepare(
+            "SELECT i.id FROM issues i LEFT JOIN issue_templates t ON t.id=i.templateId LEFT JOIN template_versions v ON v.templateId=i.templateId AND v.version=i.templateVersion WHERE i.templateId IS NOT NULL AND (v.version IS NULL OR t.projectId<>i.projectId) LIMIT 1",
+          )
+          .get()
+      )
+        throw new Error("Invalid template provenance in backup.");
+    }
     const attachments = db
       .prepare("SELECT storageKey,size FROM attachments WHERE kind='file'")
       .all();
@@ -174,7 +159,7 @@ export function validateBackup(stageDir: string): {
       )
         throw new Error("Attachment storageKey is not a valid UUID.");
       const size = Number(row.size);
-      if (!Number.isSafeInteger(size) || size < 0)
+      if (!Number.isSafeInteger(size) || size < 0 || size > 20 * 1024 * 1024)
         throw new Error("Attachment recorded size is invalid.");
       const attachment = requireRegularFile(
         join(root, "uploads", row.storageKey),
@@ -183,7 +168,12 @@ export function validateBackup(stageDir: string): {
       if (attachment.size !== size)
         throw new Error(`Attachment size mismatch for ${row.storageKey}.`);
     }
-    return { schemaVersion: 1, fileCount: attachments.length };
+    const resourceFileCount =
+      version >= 7 ? validateResourceVersionFiles(root, db) : 0;
+    return {
+      schemaVersion: version,
+      fileCount: attachments.length + resourceFileCount,
+    };
   } finally {
     db.close();
   }

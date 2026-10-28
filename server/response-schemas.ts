@@ -19,6 +19,7 @@ export const projectSchema = z.object({
   updatedAt: z.string(),
 });
 export const versionSchema = z.object({
+  revision: z.number().int().positive(),
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
@@ -29,6 +30,8 @@ export const versionSchema = z.object({
   updatedAt: z.string(),
 });
 export const issueSchema = z.object({
+  templateId: z.string().nullable().optional(),
+  templateVersion: z.number().int().positive().nullable().optional(),
   id: z.string(),
   projectId: z.string(),
   key: z.string(),
@@ -100,6 +103,23 @@ export const issueDetailSchema = z.object({
   attachments: z.array(attachmentSchema),
 });
 export const apiErrorSchema = z.object({
+  fields: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   code: z.string().optional(),
 });
+
+export {
+  sessionSchema,
+  sessionEventSchema,
+  sessionRequestSchema,
+  sessionDetailSchema,
+  sessionEventResultSchema,
+} from "./contracts/sessions.js";
+
+export {
+  issueTemplateSchema,
+  templateDetailSchema,
+  templateVersionSchema,
+  templateAssigneeSchema,
+  templatePreviewSchema,
+} from "./contracts/templates.js";

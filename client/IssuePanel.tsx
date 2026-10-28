@@ -1,3 +1,5 @@
+import { IssueResources } from "./features/resources/IssueResources.js";
+import { IssueRelations } from "./features/relations/IssueRelations.js";
 import { issueDetailSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Bootstrap, IssueDetail, Attachment } from "../server/types.js";
@@ -17,11 +19,13 @@ export default function IssuePanel({
   data,
   onClose,
   onChanged,
+  onOpen,
 }: {
   id: string;
   data: Bootstrap;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onOpen?: (id: string) => void;
 }) {
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [error, setError] = useState("");
@@ -255,18 +259,17 @@ export default function IssuePanel({
                 </strong>
               </div>
             </div>
-            {issue.status === "waiting" && (
-              <div className="waiting-note">
-                <strong>승인 전까지 잠시 멈춤</strong>
-                <span>이 상태는 작업을 자동 실행하지 않아요.</span>
+            {issue.templateId && issue.templateVersion && (
+              <div className="template-provenance">
+                <span>생성 템플릿</span>
+                <code>
+                  {issue.templateId} · v{issue.templateVersion}
+                </code>
               </div>
             )}
             {issue.status === "done" && (
               <div className="done-note">
-                <strong>구현 완료, 아직 종료 전이에요</strong>
-                <span>
-                  결과를 확인한 뒤 편집에서 ‘소유자 종료’를 선택하세요.
-                </span>
+                <strong>소유자 확인 전</strong>
               </div>
             )}
             <section className="detail-section">
@@ -274,10 +277,22 @@ export default function IssuePanel({
               <div
                 className={`description-text ${!issue.description ? "muted" : ""}`}
               >
-                {issue.description ||
-                  "아직 설명이 없어요. 편집해서 작업의 맥락을 남겨 보세요."}
+                {issue.description || "설명 없음"}
               </div>
             </section>
+            <IssueResources
+              key={`resources-${issue.id}`}
+              issue={issue}
+              canWrite={data.actor.canWrite}
+              onChanged={changed}
+            />
+            <IssueRelations
+              key={issue.id}
+              issue={issue}
+              data={data}
+              onChanged={changed}
+              onOpen={onOpen ?? (() => {})}
+            />
             <section className="detail-section">
               <div className="section-heading">
                 <h3>
@@ -333,8 +348,8 @@ export default function IssuePanel({
                 <div className="resource-empty">
                   <Icon name="file" size={24} />
                   <span>
-                    파일, 이미지, 문서와 링크를 한곳에.
-                    <small>최대 20 MB · 로그인한 사용자만 접근</small>
+                    첨부 자료 없음
+                    <small>파일당 20 MB 이하</small>
                   </span>
                 </div>
               )}
@@ -397,7 +412,7 @@ export default function IssuePanel({
                         </article>
                       ))
                     ) : (
-                      <p className="quiet-empty">첫 번째 메모를 남겨 보세요.</p>
+                      <p className="quiet-empty">댓글 없음</p>
                     )}
                   </div>
                   <form
@@ -600,9 +615,7 @@ function LinkEditor({
             placeholder="https://"
           />
         </Field>
-        <p className="inline-note">
-          http / https 주소만 저장해요. 링크 내용은 서버에서 가져오지 않아요.
-        </p>
+
         <ErrorNotice message={error} />
         <footer className="form-actions">
           <button type="button" className="button secondary" onClick={onClose}>
