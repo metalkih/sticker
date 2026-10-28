@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { lockBodyScroll } from "../../client/scroll-lock.js";
 
-test("shared scroll locks restore the first value regardless of release order and tolerate repeated release", () => {
+void test("shared scroll locks restore the first value regardless of release order and tolerate repeated release", () => {
   for (const reverse of [false, true]) {
     const document = new JSDOM("<!doctype html><body></body>").window.document;
     document.body.style.overflow = "scroll";
@@ -21,7 +21,7 @@ test("shared scroll locks restore the first value regardless of release order an
   }
 });
 
-test("scroll locks are isolated per document and can be reacquired after teardown", () => {
+void test("scroll locks are isolated per document and can be reacquired after teardown", () => {
   const a = new JSDOM("<!doctype html><body></body>").window.document;
   const b = new JSDOM("<!doctype html><body></body>").window.document;
   b.body.style.overflow = "auto";

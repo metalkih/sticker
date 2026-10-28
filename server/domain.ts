@@ -1,5 +1,14 @@
+import {
+  projectSchema,
+  versionSchema,
+  issueSchema,
+  reportSchema,
+  commentSchema,
+  activitySchema,
+  attachmentSchema as attachmentResponseSchema,
+} from "./response-schemas.js";
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
 import { openDatabase } from "./db.js";
 import {
@@ -9,7 +18,6 @@ import {
   type Version,
   type Issue,
   type Comment,
-  type Activity,
   type Attachment,
   type AgentReport,
   type Bootstrap,
@@ -108,7 +116,10 @@ const attachmentName = z
   .min(1)
   .max(255)
   .refine(
-    (v) => !/[\x00-\x1f\x7f]/.test(v),
+    (v) =>
+      !Array.from(v).some(
+        (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127,
+      ),
     "파일 이름에 제어 문자를 사용할 수 없습니다.",
   );
 const attachmentSchema = z.discriminatedUnion("kind", [
@@ -117,9 +128,8 @@ const attachmentSchema = z.discriminatedUnion("kind", [
       kind: z.literal("link"),
       name: attachmentName,
       url: z
-        .string()
-        .max(4096)
         .url()
+        .max(4096)
         .refine((v) => {
           const u = new URL(v);
           return (
@@ -163,16 +173,23 @@ function parse<T>(schema: z.ZodType<T>, input: unknown): T {
 function now() {
   return new Date().toISOString();
 }
-type Row = Record<string, SQLInputValue>;
+type Row = Record<string, SQLOutputValue>;
+function textColumn(row: Row, key: string): string {
+  const value = row[key];
+  if (typeof value !== "string")
+    throw new Error(`Invalid stored text column: ${key}`);
+  return value;
+}
 function issueRow(row: Row): Issue {
-  return { ...row, labels: JSON.parse(String(row.labels)) } as unknown as Issue;
+  const labels: unknown = JSON.parse(textColumn(row, "labels"));
+  return issueSchema.parse({ ...row, labels });
 }
 function reportRow(row: Row): AgentReport {
-  const elapsed = Date.now() - Date.parse(String(row.reportedAt));
-  return {
+  const elapsed = Date.now() - Date.parse(textColumn(row, "reportedAt"));
+  return reportSchema.parse({
     ...row,
     stale: !Number.isFinite(elapsed) || elapsed > 300_000 || elapsed < -60_000,
-  } as unknown as AgentReport;
+  });
 }
 
 /** All authorization and business rules shared by HTTP and MCP live here. */
@@ -204,7 +221,7 @@ export class Store {
   private get(table: string, idValue: string): Row {
     const row = this.db
       .prepare(`SELECT * FROM ${table} WHERE id=?`)
-      .get(idValue) as Row | undefined;
+      .get(idValue);
     if (!row)
       throw new DomainError(404, "NOT_FOUND", "항목을 찾을 수 없습니다.");
     return row;
@@ -215,7 +232,7 @@ export class Store {
       .prepare(
         `INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`,
       )
-      .run(...keys.map((k) => obj[k]!));
+      .run(...Object.values(obj));
   }
   private update(
     table: string,
@@ -228,7 +245,7 @@ export class Store {
         .prepare(
           `UPDATE ${table} SET ${keys.map((k) => `${k}=?`).join(",")} WHERE id=?`,
         )
-        .run(...keys.map((k) => obj[k]!), idValue);
+        .run(...Object.values(obj), idValue);
   }
   private write(actor: Actor) {
     if (!actor.canWrite)
@@ -257,8 +274,7 @@ export class Store {
   }
   private project(actor: Actor, projectId: string): Project {
     this.scope(actor, projectId);
-    const { nextIssue: _, ...row } = this.get("projects", projectId);
-    return row as unknown as Project;
+    return projectSchema.parse(this.get("projects", projectId));
   }
   private issue(actor: Actor, issueId: string): Issue {
     const row = issueRow(this.get("issues", issueId));
@@ -321,11 +337,15 @@ export class Store {
   }
 
   bootstrap(actor: Actor): Bootstrap {
-    const allProjects = this.db
-      .prepare(
-        "SELECT id,key,name,description,color,createdAt,updatedAt FROM projects ORDER BY createdAt,id",
-      )
-      .all() as unknown as Project[];
+    const allProjects = projectSchema
+      .array()
+      .parse(
+        this.db
+          .prepare(
+            "SELECT id,key,name,description,color,createdAt,updatedAt FROM projects ORDER BY createdAt,id",
+          )
+          .all(),
+      );
     const projects = allProjects.filter(
       (p) =>
         actor.role === "owner" ||
@@ -333,23 +353,20 @@ export class Store {
         actor.projectIds.includes(p.id),
     );
     const allowed = new Set(projects.map((p) => p.id));
-    const versions = (
-      this.db
-        .prepare("SELECT * FROM versions ORDER BY createdAt,id")
-        .all() as unknown as Version[]
-    ).filter((v) => allowed.has(v.projectId));
-    const issues = (
-      this.db
-        .prepare("SELECT * FROM issues ORDER BY updatedAt DESC,rowid DESC")
-        .all() as Row[]
-    )
+    const versions = versionSchema
+      .array()
+      .parse(
+        this.db.prepare("SELECT * FROM versions ORDER BY createdAt,id").all(),
+      )
+      .filter((v) => allowed.has(v.projectId));
+    const issues = this.db
+      .prepare("SELECT * FROM issues ORDER BY updatedAt DESC,rowid DESC")
+      .all()
       .map(issueRow)
       .filter((v) => allowed.has(v.projectId));
-    const reports = (
-      this.db
-        .prepare("SELECT * FROM agent_reports ORDER BY reportedAt DESC")
-        .all() as Row[]
-    )
+    const reports = this.db
+      .prepare("SELECT * FROM agent_reports ORDER BY reportedAt DESC")
+      .all()
       .map(reportRow)
       .filter((v) => allowed.has(v.projectId));
     return { actor, projects, versions, issues, reports };
@@ -358,21 +375,33 @@ export class Store {
     const issue = this.issue(actor, issueId);
     return {
       issue,
-      comments: this.db
-        .prepare(
-          "SELECT * FROM comments WHERE issueId=? ORDER BY createdAt,rowid",
-        )
-        .all(issueId) as unknown as Comment[],
-      activity: this.db
-        .prepare(
-          "SELECT * FROM activity WHERE issueId=? ORDER BY createdAt,rowid",
-        )
-        .all(issueId) as unknown as Activity[],
-      attachments: this.db
-        .prepare(
-          "SELECT * FROM attachments WHERE issueId=? ORDER BY createdAt,rowid",
-        )
-        .all(issueId) as unknown as Attachment[],
+      comments: commentSchema
+        .array()
+        .parse(
+          this.db
+            .prepare(
+              "SELECT * FROM comments WHERE issueId=? ORDER BY createdAt,rowid",
+            )
+            .all(issueId),
+        ),
+      activity: activitySchema
+        .array()
+        .parse(
+          this.db
+            .prepare(
+              "SELECT * FROM activity WHERE issueId=? ORDER BY createdAt,rowid",
+            )
+            .all(issueId),
+        ),
+      attachments: attachmentResponseSchema
+        .array()
+        .parse(
+          this.db
+            .prepare(
+              "SELECT * FROM attachments WHERE issueId=? ORDER BY createdAt,rowid",
+            )
+            .all(issueId),
+        ),
     };
   }
   createProject(actor: Actor, input: unknown): Project {
@@ -438,23 +467,23 @@ export class Store {
     const data = parse(versionUpdate, input);
     return this.tx(() => {
       const old = this.get("versions", versionId);
-      this.scope(actor, String(old.projectId));
+      this.scope(actor, textColumn(old, "projectId"));
       this.update("versions", versionId, { ...data, updatedAt: now() });
-      return this.get("versions", versionId) as unknown as Version;
+      return versionSchema.parse(this.get("versions", versionId));
     });
   }
   deleteVersion(actor: Actor, versionId: string): void {
     this.write(actor);
     this.tx(() => {
       const v = this.get("versions", versionId);
-      this.scope(actor, String(v.projectId));
+      this.scope(actor, textColumn(v, "projectId"));
       const affected = this.db
         .prepare(
           "SELECT * FROM issues WHERE targetVersionId=? OR foundVersionId=? OR fixedVersionId=?",
         )
-        .all(versionId, versionId, versionId) as Row[];
+        .all(versionId, versionId, versionId);
       for (const row of affected) {
-        this.writableIssue(actor, String(row.id));
+        this.writableIssue(actor, textColumn(row, "id"));
         const change: Record<string, SQLInputValue> = {
           revision: Number(row.revision) + 1,
           updatedAt: now(),
@@ -465,12 +494,12 @@ export class Store {
           "fixedVersionId",
         ])
           if (row[key] === versionId) change[key] = null;
-        this.update("issues", String(row.id), change);
+        this.update("issues", textColumn(row, "id"), change);
         this.activity(
           actor,
-          String(row.id),
+          textColumn(row, "id"),
           "version_removed",
-          `버전 삭제: ${String(v.name)}`,
+          `버전 삭제: ${textColumn(v, "name")}`,
         );
       }
       this.db.prepare("DELETE FROM versions WHERE id=?").run(versionId);
@@ -492,7 +521,7 @@ export class Store {
       const stamp = now(),
         issue: Issue = {
           id: randomUUID(),
-          key: `${p.key}-${internal.nextIssue}`,
+          key: `${p.key}-${String(z.number().int().positive().parse(internal.nextIssue))}`,
           ...data,
           revision: 1,
           createdAt: stamp,
@@ -512,8 +541,8 @@ export class Store {
       !input ||
       typeof input !== "object" ||
       !("revision" in input) ||
-      !Number.isInteger((input as { revision: unknown }).revision) ||
-      Number((input as { revision: unknown }).revision) < 1
+      !Number.isInteger(input.revision) ||
+      Number(input.revision) < 1
     )
       throw new DomainError(
         422,
@@ -536,12 +565,13 @@ export class Store {
           "소유자만 이슈를 종료할 수 있습니다.",
         );
       this.versionsBelong(current.projectId, data);
+      const { labels, ...fields } = data;
       const changes: Record<string, SQLInputValue> = {
-        ...data,
+        ...fields,
         revision: revision + 1,
         updatedAt: now(),
-        ...(data.labels ? { labels: JSON.stringify(data.labels) } : {}),
-      } as Record<string, SQLInputValue>;
+        ...(labels ? { labels: JSON.stringify(labels) } : {}),
+      };
       this.update("issues", issueId, changes);
       this.activity(
         actor,
@@ -586,7 +616,7 @@ export class Store {
     this.write(actor);
     this.tx(() => {
       const c = this.get("comments", commentId);
-      this.writableIssue(actor, String(c.issueId));
+      this.writableIssue(actor, textColumn(c, "issueId"));
       if (actor.role !== "owner" && c.authorId !== actor.id)
         throw new DomainError(
           403,
@@ -594,7 +624,12 @@ export class Store {
           "작성자 또는 소유자만 삭제할 수 있습니다.",
         );
       this.db.prepare("DELETE FROM comments WHERE id=?").run(commentId);
-      this.activity(actor, String(c.issueId), "comment_removed", "댓글 삭제");
+      this.activity(
+        actor,
+        textColumn(c, "issueId"),
+        "comment_removed",
+        "댓글 삭제",
+      );
     });
   }
   addAttachment(actor: Actor, issueId: string, input: unknown): Attachment {
@@ -621,7 +656,9 @@ export class Store {
     });
   }
   getAttachment(actor: Actor, attachmentId: string): Attachment {
-    const a = this.get("attachments", attachmentId) as unknown as Attachment;
+    const a = attachmentResponseSchema.parse(
+      this.get("attachments", attachmentId),
+    );
     this.issue(actor, a.issueId);
     return a;
   }

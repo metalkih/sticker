@@ -1,10 +1,6 @@
+import { issueDetailSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Bootstrap,
-  Issue,
-  IssueDetail,
-  Attachment,
-} from "../server/types.js";
+import type { Bootstrap, IssueDetail, Attachment } from "../server/types.js";
 import { api, json, errorText } from "./api.js";
 import { lockBodyScroll } from "./scroll-lock.js";
 import { Icon, StatusPill, Modal, Field, ErrorNotice } from "./components.js";
@@ -37,21 +33,27 @@ export default function IssuePanel({
   const [linkModal, setLinkModal] = useState(false);
   const [tab, setTab] = useState<"comments" | "activity">("comments");
   const panel = useRef<HTMLDivElement>(null);
-  const reload = useCallback(async () => {
-    try {
-      setDetail(await api<IssueDetail>(`/issues/${id}`));
-      setError("");
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }, [id]);
+  const reload = useCallback(
+    () =>
+      api(`/issues/${id}`, undefined, issueDetailSchema).then(
+        (next) => {
+          setDetail(next);
+          setError("");
+        },
+        (e: unknown) => {
+          setError(errorText(e));
+        },
+      ),
+    [id],
+  );
   useEffect(() => {
-    setDetail(null);
-    setError("");
     void reload();
   }, [reload]);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const releaseScrollLock = lockBodyScroll(document);
     panel.current?.focus();
     const handle = (event: KeyboardEvent) => {
@@ -63,6 +65,7 @@ export default function IssuePanel({
             "button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]",
           ),
         );
+        if (!nodes.length) return;
         const first = nodes[0],
           last = nodes[nodes.length - 1];
         if (
@@ -71,10 +74,10 @@ export default function IssuePanel({
             document.activeElement === panel.current)
         ) {
           event.preventDefault();
-          last?.focus();
+          last.focus();
         } else if (!event.shiftKey && document.activeElement === last) {
           event.preventDefault();
-          first?.focus();
+          first.focus();
         }
       }
     };
@@ -89,7 +92,7 @@ export default function IssuePanel({
     await reload();
     await onChanged();
   };
-  async function commentSubmit(e: React.FormEvent) {
+  async function commentSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || !comment.trim()) return;
     setBusy(true);
@@ -161,7 +164,7 @@ export default function IssuePanel({
           </button>
         </header>
         <ErrorNotice message={error} />
-        {!detail ? (
+        {!detail || !issue ? (
           <div className="panel-loading">
             {error ? "이슈를 불러오지 못했어요." : "스티커를 가져오는 중…"}
             {error && (
@@ -176,7 +179,7 @@ export default function IssuePanel({
         ) : (
           <div className="panel-content">
             <div className="detail-title-row">
-              <StatusPill status={issue!.status} />
+              <StatusPill status={issue.status} />
               <div className="panel-actions">
                 <button
                   className="icon-button"
@@ -187,59 +190,63 @@ export default function IssuePanel({
                 </button>
                 <button
                   className="icon-button"
-                  onClick={() => setEditing(true)}
+                  onClick={() => {
+                    setEditing(true);
+                  }}
                   aria-label="이슈 편집"
                 >
                   <Icon name="edit" size={16} />
                 </button>
                 <button
                   className="icon-button muted-danger"
-                  onClick={() => setRemoving(true)}
+                  onClick={() => {
+                    setRemoving(true);
+                  }}
                   aria-label="이슈 삭제"
                 >
                   <Icon name="trash" size={16} />
                 </button>
               </div>
             </div>
-            <h2 className="detail-title">{issue!.title}</h2>
+            <h2 className="detail-title">{issue.title}</h2>
             <p className="detail-time">
-              {dateText(issue!.createdAt, true)}에 붙임 ·{" "}
-              {relativeTime(issue!.updatedAt)} 수정
+              {dateText(issue.createdAt, true)}에 붙임 ·{" "}
+              {relativeTime(issue.updatedAt)} 수정
             </p>
             <div className="detail-properties">
               <div>
                 <span>담당자</span>
                 <strong>
                   <i className="avatar tiny">
-                    {issue!.assignee?.slice(0, 1) || "–"}
+                    {issue.assignee.slice(0, 1) || "–"}
                   </i>
-                  {issue!.assignee || "미지정"}
+                  {issue.assignee || "미지정"}
                 </strong>
               </div>
               <div>
                 <span>우선순위</span>
-                <strong className={`priority-${issue!.priority}`}>
-                  {priorityIcons[issue!.priority]}{" "}
-                  {priorityNames[issue!.priority]}
+                <strong className={`priority-${issue.priority}`}>
+                  {priorityIcons[issue.priority]}{" "}
+                  {priorityNames[issue.priority]}
                 </strong>
               </div>
               <div>
                 <span>목표 버전</span>
-                <strong>{versionName(issue!.targetVersionId)}</strong>
+                <strong>{versionName(issue.targetVersionId)}</strong>
               </div>
               <div>
                 <span>발견 버전</span>
-                <strong>{versionName(issue!.foundVersionId)}</strong>
+                <strong>{versionName(issue.foundVersionId)}</strong>
               </div>
               <div>
                 <span>수정 버전</span>
-                <strong>{versionName(issue!.fixedVersionId)}</strong>
+                <strong>{versionName(issue.fixedVersionId)}</strong>
               </div>
               <div>
                 <span>라벨</span>
                 <strong className="detail-labels">
-                  {issue!.labels.length
-                    ? issue!.labels.map((l) => (
+                  {issue.labels.length
+                    ? issue.labels.map((l) => (
                         <span className="label-tag" key={l}>
                           {l}
                         </span>
@@ -248,13 +255,13 @@ export default function IssuePanel({
                 </strong>
               </div>
             </div>
-            {issue!.status === "waiting" && (
+            {issue.status === "waiting" && (
               <div className="waiting-note">
                 <strong>승인 전까지 잠시 멈춤</strong>
                 <span>이 상태는 작업을 자동 실행하지 않아요.</span>
               </div>
             )}
-            {issue!.status === "done" && (
+            {issue.status === "done" && (
               <div className="done-note">
                 <strong>구현 완료, 아직 종료 전이에요</strong>
                 <span>
@@ -265,9 +272,9 @@ export default function IssuePanel({
             <section className="detail-section">
               <h3>작업 내용</h3>
               <div
-                className={`description-text ${!issue!.description ? "muted" : ""}`}
+                className={`description-text ${!issue.description ? "muted" : ""}`}
               >
-                {issue!.description ||
+                {issue.description ||
                   "아직 설명이 없어요. 편집해서 작업의 맥락을 남겨 보세요."}
               </div>
             </section>
@@ -279,7 +286,9 @@ export default function IssuePanel({
                 <div className="resource-actions">
                   <button
                     className="text-button"
-                    onClick={() => setLinkModal(true)}
+                    onClick={() => {
+                      setLinkModal(true);
+                    }}
                   >
                     <Icon name="link" size={14} />
                     링크 추가
@@ -334,13 +343,17 @@ export default function IssuePanel({
               <div className="detail-tabs">
                 <button
                   className={tab === "comments" ? "active" : ""}
-                  onClick={() => setTab("comments")}
+                  onClick={() => {
+                    setTab("comments");
+                  }}
                 >
                   댓글 <span>{detail.comments.length}</span>
                 </button>
                 <button
                   className={tab === "activity" ? "active" : ""}
-                  onClick={() => setTab("activity")}
+                  onClick={() => {
+                    setTab("activity");
+                  }}
                 >
                   변경 기록 <span>{detail.activity.length}</span>
                 </button>
@@ -363,15 +376,17 @@ export default function IssuePanel({
                               <button
                                 className="icon-button comment-delete"
                                 aria-label={`${c.authorName} 댓글 삭제`}
-                                onClick={async () => {
-                                  try {
-                                    await api(`/comments/${c.id}`, {
-                                      method: "DELETE",
-                                    });
-                                    await changed();
-                                  } catch (e) {
-                                    setError(errorText(e));
-                                  }
+                                onClick={() => {
+                                  void (async () => {
+                                    try {
+                                      await api(`/comments/${c.id}`, {
+                                        method: "DELETE",
+                                      });
+                                      await changed();
+                                    } catch (e) {
+                                      setError(errorText(e));
+                                    }
+                                  })();
                                 }}
                               >
                                 <Icon name="trash" size={13} />
@@ -385,14 +400,21 @@ export default function IssuePanel({
                       <p className="quiet-empty">첫 번째 메모를 남겨 보세요.</p>
                     )}
                   </div>
-                  <form className="comment-form" onSubmit={commentSubmit}>
+                  <form
+                    className="comment-form"
+                    onSubmit={(e) => {
+                      void commentSubmit(e);
+                    }}
+                  >
                     <label className="sr-only" htmlFor="comment-body">
                       댓글 작성
                     </label>
                     <textarea
                       id="comment-body"
                       value={comment}
-                      onChange={(e) => setComment(e.target.value)}
+                      onChange={(e) => {
+                        setComment(e.target.value);
+                      }}
                       placeholder="생각, 진행 상황, 검증 결과를 남겨 주세요…"
                       rows={3}
                       maxLength={20000}
@@ -434,7 +456,9 @@ export default function IssuePanel({
         <IssueEditor
           issue={issue}
           data={data}
-          onClose={() => setEditing(false)}
+          onClose={() => {
+            setEditing(false);
+          }}
           onSaved={async () => {
             setEditing(false);
             await changed();
@@ -445,7 +469,9 @@ export default function IssuePanel({
         <Confirm
           title="이 스티커를 삭제할까요?"
           description="이슈와 댓글, 첨부 리소스 연결이 삭제돼요. 이 작업은 되돌릴 수 없어요."
-          onClose={() => setRemoving(false)}
+          onClose={() => {
+            setRemoving(false);
+          }}
           onConfirm={async () => {
             await api(`/issues/${id}`, { method: "DELETE" });
             await onChanged();
@@ -456,7 +482,9 @@ export default function IssuePanel({
       {linkModal && (
         <LinkEditor
           issueId={id}
-          onClose={() => setLinkModal(false)}
+          onClose={() => {
+            setLinkModal(false);
+          }}
           onSaved={async () => {
             setLinkModal(false);
             await changed();
@@ -480,7 +508,11 @@ function AttachmentRow({
         <Icon name={a.kind === "link" ? "link" : "file"} size={18} />
       </span>
       <a
-        href={a.kind === "link" ? a.url! : `/api/attachments/${a.id}/file`}
+        href={
+          a.kind === "link"
+            ? (a.url ?? undefined)
+            : `/api/attachments/${a.id}/file`
+        }
         target={a.kind === "link" ? "_blank" : undefined}
         rel="noopener noreferrer"
       >
@@ -493,13 +525,15 @@ function AttachmentRow({
         className="icon-button"
         aria-label={`${a.name} 첨부 삭제`}
         disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await onDelete();
-          } finally {
-            setBusy(false);
-          }
+        onClick={() => {
+          void (async () => {
+            setBusy(true);
+            try {
+              await onDelete();
+            } finally {
+              setBusy(false);
+            }
+          })();
         }}
       >
         <Icon name="trash" size={14} />
@@ -524,21 +558,23 @@ function LinkEditor({
     <Modal title="참고 링크 붙이기" onClose={onClose}>
       <form
         className="editor-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (busy) return;
-          setBusy(true);
-          try {
-            await api(`/issues/${issueId}/links`, {
-              method: "POST",
-              body: json({ name, url }),
-            });
-            await onSaved();
-          } catch (e) {
-            setError(errorText(e));
-          } finally {
-            setBusy(false);
-          }
+        onSubmit={(e) => {
+          void (async () => {
+            e.preventDefault();
+            if (busy) return;
+            setBusy(true);
+            try {
+              await api(`/issues/${issueId}/links`, {
+                method: "POST",
+                body: json({ name, url }),
+              });
+              await onSaved();
+            } catch (e) {
+              setError(errorText(e));
+            } finally {
+              setBusy(false);
+            }
+          })();
         }}
       >
         <Field label="링크 이름">
@@ -546,7 +582,9 @@ function LinkEditor({
             required
             maxLength={255}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+            }}
             placeholder="디자인 시안, API 문서…"
           />
         </Field>
@@ -556,7 +594,9 @@ function LinkEditor({
             required
             pattern="https?://.*"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value);
+            }}
             placeholder="https://"
           />
         </Field>

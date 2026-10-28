@@ -40,7 +40,7 @@ export function dateText(value: string | null, full = false) {
 }
 export function bytes(value: number) {
   return value < 1024
-    ? `${value} B`
+    ? `${String(value)} B`
     : value < 1024 * 1024
       ? `${(value / 1024).toFixed(1)} KB`
       : `${(value / 1024 / 1024).toFixed(1)} MB`;
@@ -53,9 +53,9 @@ export function relativeTime(value: string) {
   return minutes < 1
     ? "방금 전"
     : minutes < 60
-      ? `${minutes}분 전`
+      ? `${String(minutes)}분 전`
       : minutes < 1440
-        ? `${Math.floor(minutes / 60)}시간 전`
+        ? `${String(Math.floor(minutes / 60))}시간 전`
         : dateText(value);
 }
 export const versionStateNames = {

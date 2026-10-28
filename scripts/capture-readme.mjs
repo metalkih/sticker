@@ -142,7 +142,7 @@ try {
     await page
       .getByRole("heading", { name: "내 작업 공간", exact: true })
       .waitFor();
-    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate("document.fonts.ready");
     await page.screenshot({
       path: join(output, "main-board.png"),
       animations: "disabled",

@@ -42,7 +42,9 @@ try {
         ready = true;
         break;
       }
-    } catch {}
+    } catch {
+      // The server may not have bound its listening socket yet.
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
   assert.ok(ready, `Production server never became ready: ${logs}`);
@@ -54,7 +56,7 @@ try {
   );
   const html = await page.text();
   assert.match(html, /스티커/);
-  for (const asset of [...html.matchAll(/(?:src|href)="(\/assets\/[^\"]+)"/g)])
+  for (const asset of [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)])
     assert.equal((await fetch(origin + asset[1])).status, 200, asset[1]);
   assert.equal((await fetch(`${origin}/api/bootstrap`)).status, 401);
   const login = await fetch(`${origin}/api/session`, {

@@ -1,3 +1,4 @@
+import { bootstrapSchema, apiErrorSchema } from "./response-schemas.js";
 /** STDIO adapter only: all authorization, attribution and persistence live in the HTTP domain API. */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -39,7 +40,6 @@ const versionFields = {
     .optional(),
 };
 const linkUrl = z
-  .string()
   .url()
   .max(4096)
   .refine(
@@ -129,16 +129,15 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
       );
     }
     if (!response.ok) {
-      let error: { error?: unknown; code?: unknown } = {};
-      try {
-        error = (await response.json()) as typeof error;
-      } catch {}
+      const raw: unknown = await response.json().catch(() => null);
+      const parsed = apiErrorSchema.safeParse(raw);
+      const error = parsed.success ? parsed.data : {};
       throw new ApiError(
         response.status,
         typeof error.code === "string" ? scrub(error.code) : "api_error",
         typeof error.error === "string"
           ? scrub(error.error)
-          : `API HTTP ${response.status}`,
+          : `API HTTP ${String(response.status)}`,
       );
     }
     return response;
@@ -147,10 +146,12 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
     path: string,
     method = "GET",
     body?: unknown,
-  ): Promise<any> {
+  ): Promise<unknown> {
     const res = await request(path, method, body);
     return res.status === 204 ? { ok: true } : res.json();
   }
+  const bootstrap = async () =>
+    bootstrapSchema.parse(await json("/api/bootstrap"));
   const result = (value: unknown): CallToolResult => ({
     content: [{ type: "text", text: JSON.stringify(value) }],
   });
@@ -198,8 +199,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
           openWorldHint: false,
         },
       },
-      async (args) =>
-        safely(async () => result(await run(args as z.infer<z.ZodObject<S>>))),
+      async (args) => safely(async () => result(await run(args))),
     );
   }
   const e = encodeURIComponent;
@@ -207,7 +207,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
     "sticker_list_projects",
     "토큰 범위에서 접근 가능한 프로젝트를 조회합니다.",
     {},
-    async () => (await json("/api/bootstrap")).projects,
+    async () => (await bootstrap()).projects,
     true,
   );
   tool(
@@ -222,7 +222,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
     "프로젝트의 목표/발견/수정 버전 후보를 조회합니다.",
     { projectId: id.optional() },
     async ({ projectId }) =>
-      (await json("/api/bootstrap")).versions.filter(
+      (await bootstrap()).versions.filter(
         (v: { projectId: string }) => !projectId || v.projectId === projectId,
       ),
     true,
@@ -252,7 +252,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
       query: z.string().max(200).optional(),
     },
     async (a) =>
-      (await json("/api/bootstrap")).issues.filter(
+      (await bootstrap()).issues.filter(
         (i: {
           projectId: string;
           status: string;
@@ -320,7 +320,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
     "타임스탬프와 stale 표시를 포함한 자기 보고 목록을 읽습니다. working은 실행 중 증거가 아닙니다.",
     { projectId: id.optional() },
     async ({ projectId }) =>
-      (await json("/api/bootstrap")).reports.filter(
+      (await bootstrap()).reports.filter(
         (r: { projectId: string }) => !projectId || r.projectId === projectId,
       ),
     true,
