@@ -49,6 +49,14 @@ test("relation picker, board blocker links, stale failure and desktop/mobile key
   await expect(
     page.getByText("차단됨 · 소유자 종결 전", { exact: true }),
   ).toBeVisible();
+  // The relation can render before the awaited parent refresh closes its picker.
+  // Escape must target the restored issue panel, not the still-active picker.
+  await expect(picker).toBeHidden();
+  await expect(
+    page
+      .getByRole("dialog", { name: "이슈 상세", exact: true })
+      .getByRole("button", { name: "관계 추가", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("dialog", { name: "이슈 상세", exact: true }),

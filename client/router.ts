@@ -8,13 +8,15 @@ export interface Route {
   tab: string;
   bucket: string;
   view: string;
+  template: string;
 }
 export const readRoute = (): Route => {
   const params = new URLSearchParams(window.location.hash.slice(1));
   const rawSession = params.get("session") || "",
     rawRequest = params.get("request") || "",
     issue = params.get("issue") || "",
-    rawVersion = params.get("version") || "";
+    rawVersion = params.get("version") || "",
+    rawTemplate = params.get("template") || "";
   const section =
     params.get("section") ||
     (rawSession
@@ -23,9 +25,12 @@ export const readRoute = (): Route => {
         ? "inbox"
         : rawVersion
           ? "versions"
-          : "issues");
+          : rawTemplate
+            ? "templates"
+            : "issues");
   return {
     section,
+    template: section === "templates" ? rawTemplate : "",
     view: section === "issues" ? params.get("view") || "" : "",
     project: params.get("project") || "",
     issue,
@@ -102,6 +107,7 @@ export function subscribeRoute(listener: (route: Route) => void) {
 export function navigate(next: Partial<Route>) {
   const merged = { ...readRoute(), ...next };
   if (next.section && next.section !== readRoute().section) {
+    merged.template = next.template ?? "";
     merged.view = next.view ?? "";
     merged.session = next.session ?? "";
     merged.request = next.request ?? "";
@@ -109,8 +115,10 @@ export function navigate(next: Partial<Route>) {
     merged.tab = next.tab ?? "";
     merged.bucket = next.bucket ?? "";
   }
-  if (next.project !== undefined && next.project !== readRoute().project)
+  if (next.project !== undefined && next.project !== readRoute().project) {
     merged.view = next.view ?? "";
+    merged.template = next.template ?? "";
+  }
   const params = new URLSearchParams();
   Object.entries(merged).forEach(([key, value]) => {
     if (value && !(key === "section" && value === "issues"))

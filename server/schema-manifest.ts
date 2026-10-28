@@ -185,7 +185,7 @@ const throughV4 = {
     ],
   },
 } as const;
-export const schemaManifests = {
+const throughV5 = {
   ...throughV4,
   5: {
     ...throughV4[4],
@@ -208,9 +208,43 @@ export const schemaManifests = {
     ],
   },
 } as const;
+export const schemaManifests = {
+  ...throughV5,
+  6: {
+    ...throughV5[5],
+    issues: [...v1.issues, "templateId", "templateVersion"],
+    issue_templates: [
+      "id",
+      "projectId",
+      "name",
+      "currentVersion",
+      "revision",
+      "deletedAt",
+      "createdAt",
+      "updatedAt",
+    ],
+    template_versions: [
+      "templateId",
+      "version",
+      "body",
+      "requiredFields",
+      "defaults",
+      "authorId",
+      "authorName",
+      "createdAt",
+    ],
+    template_operations: ["actorId", "operationId", "payload", "templateId"],
+    issue_creation_operations: ["actorId", "operationId", "payload", "issueId"],
+  },
+} as const;
 export type SchemaVersion = keyof typeof schemaManifests;
 export function isSchemaVersion(value: unknown): value is SchemaVersion {
   return (
-    value === 1 || value === 2 || value === 3 || value === 4 || value === 5
+    value === 1 ||
+    value === 2 ||
+    value === 3 ||
+    value === 4 ||
+    value === 5 ||
+    value === 6
   );
 }

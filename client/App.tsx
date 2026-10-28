@@ -1,3 +1,4 @@
+import TemplateWorkspace from "./features/templates/TemplateWorkspace.js";
 import { SavedIssueWorkspace } from "./features/views/SavedIssueWorkspace.js";
 import { SavedViewNavigation } from "./features/views/SavedViewNavigation.js";
 import VersionDetail from "./features/releases/VersionDetail.js";
@@ -176,15 +177,17 @@ export default function App() {
     waiting: projectIssues.filter((i) => i.status === "waiting").length,
   };
   const heading =
-    route.section === "projects"
-      ? "프로젝트"
-      : route.section === "versions"
-        ? "버전과 릴리스"
-        : route.section === "agents"
-          ? "에이전트 기록"
-          : route.section === "inbox"
-            ? "사용자 확인함"
-            : project?.name || "내 작업 공간";
+    route.section === "templates"
+      ? `${project?.name || "프로젝트"} 템플릿`
+      : route.section === "projects"
+        ? "프로젝트"
+        : route.section === "versions"
+          ? "버전과 릴리스"
+          : route.section === "agents"
+            ? "에이전트 기록"
+            : route.section === "inbox"
+              ? "사용자 확인함"
+              : project?.name || "내 작업 공간";
   return (
     <div className="app-shell">
       <aside
@@ -392,25 +395,37 @@ export default function App() {
                   <span>프로젝트 편집</span>
                 </button>
               )}
-              <button
-                className="button primary"
-                onClick={
-                  route.section === "projects"
-                    ? () => {
-                        setProjectEditor("new");
-                      }
+              {project && route.section === "issues" && (
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    navigate({ section: "templates", template: "", issue: "" });
+                  }}
+                >
+                  템플릿 관리
+                </button>
+              )}
+              {route.section !== "templates" && (
+                <button
+                  className="button primary"
+                  onClick={
+                    route.section === "projects"
+                      ? () => {
+                          setProjectEditor("new");
+                        }
+                      : route.section === "versions"
+                        ? newVersion
+                        : newIssue
+                  }
+                >
+                  <Icon name="plus" size={17} />
+                  {route.section === "projects"
+                    ? "새 프로젝트"
                     : route.section === "versions"
-                      ? newVersion
-                      : newIssue
-                }
-              >
-                <Icon name="plus" size={17} />
-                {route.section === "projects"
-                  ? "새 프로젝트"
-                  : route.section === "versions"
-                    ? "새 버전"
-                    : "새 이슈"}
-              </button>
+                      ? "새 버전"
+                      : "새 이슈"}
+                </button>
+              )}
             </div>
           </div>
           <ErrorNotice message={error} />
@@ -488,6 +503,20 @@ export default function App() {
               )}
             </>
           )}
+          {route.section === "templates" && (
+            <TemplateWorkspace
+              key={route.project}
+              projectId={route.project}
+              templateId={route.template}
+              data={data}
+              onSelect={(template) => {
+                navigate({ template });
+              }}
+              onBack={() => {
+                navigate({ section: "projects", template: "" });
+              }}
+            />
+          )}
           {route.section === "projects" && (
             <div className="projects-grid">
               {data.projects.map((p) => {
@@ -556,6 +585,20 @@ export default function App() {
                       </span>
                     </div>
                     <footer>
+                      <button
+                        className="text-button"
+                        aria-label={`${p.name} 템플릿 관리`}
+                        onClick={() => {
+                          navigate({
+                            section: "templates",
+                            project: p.id,
+                            template: "",
+                            issue: "",
+                          });
+                        }}
+                      >
+                        템플릿 관리
+                      </button>
                       <span>
                         {
                           data.versions.filter((v) => v.projectId === p.id)

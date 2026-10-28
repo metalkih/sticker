@@ -5,6 +5,7 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public code: string,
+    public fields?: Record<string, string>,
   ) {
     super(message);
   }
@@ -37,6 +38,7 @@ export async function api(
       body.error || `요청을 처리하지 못했어요 (${String(response.status)}).`,
       response.status,
       body.code || "REQUEST_FAILED",
+      body.fields,
     );
   }
   if (response.status === 204)

@@ -35,6 +35,8 @@ export interface Version {
   updatedAt: string;
 }
 export interface Issue {
+  templateId?: string | null;
+  templateVersion?: number | null;
   id: string;
   projectId: string;
   key: string;
@@ -121,3 +123,12 @@ export type {
   CarryoverPreview,
   ReleaseResult,
 } from "./contracts/releases.js";
+
+export type {
+  IssueTemplate,
+  TemplateVersion,
+  TemplateDetail,
+  TemplateValues,
+  TemplateDefaults,
+  TemplateField,
+} from "./contracts/templates.js";

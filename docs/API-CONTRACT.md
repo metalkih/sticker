@@ -19,3 +19,7 @@ Store interface (domain owner implements `server/domain.ts`): `new Store(dataDir
 ## 출시 준비도와 명시적 확인 (schema v4)
 
 버전 응답은 `revision`을 포함하며 일반 PATCH에도 현재 revision이 필요합니다. 일반 생성/PATCH의 released 진입/이탈은 `RELEASE_CONFIRMATION_REQUIRED`로 거부합니다. 준비도, 이관 미리보기/항목별 결과, Markdown 초안과 owner-only 출시 확인의 요청/응답·중복 처리 정책은 [출시 검토 계약](RELEASES.md)에 정리했습니다. 앱 내부 메타데이터 외의 배포/외부 발행 동작은 없습니다.
+
+## 프로젝트 템플릿 (schema 6)
+
+소유자 관리·불변 버전·정확한 필수 값 오류와 같은 일반 이슈 생성 경로의 템플릿 적용을 제공합니다. 생성 출처는 일반 PATCH로 변경할 수 없습니다. [API, 권한, 중복 처리, 이관 및 검증](ISSUE-TEMPLATES.md).

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { initial } from "../server/migrations/001-initial.js";
-import { migrate } from "../server/migrations/index.js";
+import { migrate, migrations } from "../server/migrations/index.js";
 import { openDatabase } from "../server/db.js";
 import { validateBackup } from "../server/backup-validation.js";
 import { Store } from "../server/domain.js";
@@ -88,7 +88,7 @@ void test("true v1 backup validates read-only and migrates issues, comments, fil
   } finally {
     store.close();
   }
-  assert.equal(validateBackup(dir).schemaVersion, 5);
+  assert.equal(validateBackup(dir).schemaVersion, 6);
   assert.deepEqual(
     readFileSync(join(dir, "uploads", opaqueKey)),
     Buffer.from([0, 255, 0, 128]),
@@ -161,4 +161,101 @@ void test("opening an unsupported future database refuses before changing its by
   const before = readFileSync(path);
   assert.throws(() => openDatabase(dir), /newer/);
   assert.deepEqual(readFileSync(path), before);
+});
+void test("a true v5 backup upgrades saved predicates and issues without rewriting their values", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "sticker-v5-"));
+  t.after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const path = join(dir, "sticker.sqlite"),
+    db = new DatabaseSync(path),
+    stamp = "2026-10-01T00:00:00.000Z";
+  migrate(
+    db,
+    migrations.filter((step) => step.version <= 5),
+  );
+  db.prepare(
+    "INSERT INTO projects VALUES ('p','OLD','이전 프로젝트','설명','#d6ed61',2,?,?)",
+  ).run(stamp, stamp);
+  db.prepare(
+    "INSERT INTO issues VALUES ('i','p','OLD-1','보존할 이슈','원래 본문','ready','none','',NULL,NULL,NULL,'[]',1,?,?)",
+  ).run(stamp, stamp);
+  db.prepare(
+    "INSERT INTO saved_views VALUES ('view','owner','p','이전 뷰',?,1,?,?)",
+  ).run(
+    JSON.stringify({
+      projectId: "p",
+      status: ["ready"],
+      sort: "key_asc",
+      mode: "list",
+    }),
+    stamp,
+    stamp,
+  );
+  db.prepare(
+    "INSERT INTO view_preferences VALUES ('owner','p',1,'view','[\"view\"]')",
+  ).run();
+  db.close();
+  const before = readFileSync(path);
+  assert.equal(validateBackup(dir).schemaVersion, 5);
+  assert.deepEqual(readFileSync(path), before);
+  const store = new Store(dir);
+  try {
+    assert.equal(store.getIssue(owner, "i").issue.description, "원래 본문");
+    assert.equal(store.views.get(owner, "view").query.mode, "list");
+    assert.equal(
+      store.views.query(owner, { projectId: "p", status: ["ready"] }).issues
+        .length,
+      1,
+    );
+    const template = store.templates.create(owner, {
+      projectId: "p",
+      name: "양식",
+      body: "보존된 양식",
+      requiredFields: [],
+      defaults: {},
+      operationId: randomUUID(),
+    });
+    assert.equal(template.template.currentVersion, 1);
+  } finally {
+    store.close();
+  }
+  assert.equal(validateBackup(dir).schemaVersion, 6);
+});
+void test("a failed v6 upgrade rolls back new tables, provenance columns and user_version", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const prior = migrations.filter((step) => step.version <= 5);
+    migrate(db, prior);
+    const sixth = migrations.find((step) => step.version === 6);
+    assert.ok(sixth);
+    assert.throws(() => {
+      migrate(db, [
+        ...prior,
+        {
+          version: 6,
+          run: (database) => {
+            sixth.run(database);
+            throw new Error("injected v6 failure");
+          },
+        },
+      ]);
+    }, /injected v6 failure/);
+    assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 5);
+    assert.equal(
+      db
+        .prepare("SELECT name FROM sqlite_schema WHERE name='issue_templates'")
+        .all().length,
+      0,
+    );
+    assert.equal(
+      db
+        .prepare("PRAGMA table_info(issues)")
+        .all()
+        .some((column) => column.name === "templateId"),
+      false,
+    );
+  } finally {
+    db.close();
+  }
 });

@@ -141,7 +141,28 @@ void test("official SDK initializes STDIO, lists tools and calls issue tools wit
         }),
       );
     else if (req.url === "/api/issues")
-      res.end(JSON.stringify({ id: "i1", key: "TST-1", revision: 1, ...body }));
+      res.end(
+        JSON.stringify({
+          id: "i1",
+          key: "TST-1",
+          revision: 1,
+          projectId: "p1",
+          title: "",
+          description: "",
+          status: "backlog",
+          priority: "none",
+          assignee: "",
+          targetVersionId: null,
+          foundVersionId: null,
+          fixedVersionId: null,
+          labels: [],
+          templateId: null,
+          templateVersion: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          ...body,
+        }),
+      );
     else if (req.url === "/api/issues/i1" && req.method === "PATCH")
       res.end(JSON.stringify({ id: "i1", revision: 2, ...body }));
     else if (req.url === "/api/issues/i1/comments")

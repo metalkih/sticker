@@ -258,6 +258,14 @@ export default function IssuePanel({
                 </strong>
               </div>
             </div>
+            {issue.templateId && issue.templateVersion && (
+              <div className="template-provenance">
+                <span>생성 템플릿</span>
+                <code>
+                  {issue.templateId} · v{issue.templateVersion}
+                </code>
+              </div>
+            )}
             {issue.status === "done" && (
               <div className="done-note">
                 <strong>소유자 확인 전</strong>
