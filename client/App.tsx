@@ -1,3 +1,4 @@
+import { ResourceWorkspace } from "./features/resources/ResourceWorkspace.js";
 import TemplateWorkspace from "./features/templates/TemplateWorkspace.js";
 import { SavedIssueWorkspace } from "./features/views/SavedIssueWorkspace.js";
 import { SavedViewNavigation } from "./features/views/SavedViewNavigation.js";
@@ -177,17 +178,19 @@ export default function App() {
     waiting: projectIssues.filter((i) => i.status === "waiting").length,
   };
   const heading =
-    route.section === "templates"
-      ? `${project?.name || "프로젝트"} 템플릿`
-      : route.section === "projects"
-        ? "프로젝트"
-        : route.section === "versions"
-          ? "버전과 릴리스"
-          : route.section === "agents"
-            ? "에이전트 기록"
-            : route.section === "inbox"
-              ? "사용자 확인함"
-              : project?.name || "내 작업 공간";
+    route.section === "resources"
+      ? `${project?.name || "프로젝트"} 자료실`
+      : route.section === "templates"
+        ? `${project?.name || "프로젝트"} 템플릿`
+        : route.section === "projects"
+          ? "프로젝트"
+          : route.section === "versions"
+            ? "버전과 릴리스"
+            : route.section === "agents"
+              ? "에이전트 기록"
+              : route.section === "inbox"
+                ? "사용자 확인함"
+                : project?.name || "내 작업 공간";
   return (
     <div className="app-shell">
       <aside
@@ -383,6 +386,22 @@ export default function App() {
               )}
             </div>
             <div className="heading-actions">
+              {project && ["issues", "versions"].includes(route.section) && (
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    navigate({
+                      section: "resources",
+                      resource: "",
+                      resourceScope:
+                        route.section === "versions" ? route.version : "",
+                      issue: "",
+                    });
+                  }}
+                >
+                  자료실
+                </button>
+              )}
               {project && route.section === "issues" && (
                 <button
                   className="button secondary"
@@ -405,7 +424,7 @@ export default function App() {
                   템플릿 관리
                 </button>
               )}
-              {route.section !== "templates" && (
+              {!["templates", "resources"].includes(route.section) && (
                 <button
                   className="button primary"
                   onClick={
@@ -502,6 +521,22 @@ export default function App() {
                 </div>
               )}
             </>
+          )}
+          {route.section === "resources" && (
+            <ResourceWorkspace
+              key={route.project}
+              projectId={route.project}
+              resourceId={route.resource}
+              scopeVersion={route.resourceScope}
+              contentVersion={route.resourceVersion}
+              data={data}
+              onSelect={(resource) => {
+                navigate({ resource, resourceVersion: "" });
+              }}
+              onScope={(resourceScope) => {
+                navigate({ resourceScope, resource: "", resourceVersion: "" });
+              }}
+            />
           )}
           {route.section === "templates" && (
             <TemplateWorkspace

@@ -47,6 +47,25 @@ void test("bare session/request deep links infer their screen and unrelated expl
     navigate({ section: "templates", template: "t" });
     navigate({ project: "q" });
     assert.equal(readRoute().template, "");
+    dom.window.location.hash = "project=p&resource=r&resourceVersion=2";
+    assert.equal(readRoute().section, "resources");
+    assert.equal(readRoute().resource, "r");
+    assert.equal(readRoute().resourceVersion, "2");
+    navigate({ project: "q" });
+    assert.equal(readRoute().resource, "");
+    assert.equal(readRoute().resourceVersion, "");
+    navigate({
+      section: "resources",
+      resource: "r",
+      resourceScope: "v",
+      resourceVersion: "1",
+    });
+    navigate({ section: "issues" });
+    assert.equal(readRoute().resource, "");
+    assert.equal(readRoute().resourceScope, "");
+    dom.window.location.hash =
+      "section=resources&resource=r&resourceVersion=bad";
+    assert.equal(readRoute().resourceVersion, "");
   } finally {
     dom.window.close();
     Reflect.deleteProperty(globalThis, "window");

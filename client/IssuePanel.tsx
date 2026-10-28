@@ -1,3 +1,4 @@
+import { IssueResources } from "./features/resources/IssueResources.js";
 import { IssueRelations } from "./features/relations/IssueRelations.js";
 import { issueDetailSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -279,6 +280,12 @@ export default function IssuePanel({
                 {issue.description || "설명 없음"}
               </div>
             </section>
+            <IssueResources
+              key={`resources-${issue.id}`}
+              issue={issue}
+              canWrite={data.actor.canWrite}
+              onChanged={changed}
+            />
             <IssueRelations
               key={issue.id}
               issue={issue}

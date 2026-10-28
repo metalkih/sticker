@@ -208,7 +208,7 @@ const throughV5 = {
     ],
   },
 } as const;
-export const schemaManifests = {
+const throughV6 = {
   ...throughV5,
   6: {
     ...throughV5[5],
@@ -237,6 +237,77 @@ export const schemaManifests = {
     issue_creation_operations: ["actorId", "operationId", "payload", "issueId"],
   },
 } as const;
+export const schemaManifests = {
+  ...throughV6,
+  7: {
+    ...throughV6[6],
+    resources: [
+      "id",
+      "projectId",
+      "versionId",
+      "kind",
+      "title",
+      "currentVersion",
+      "revision",
+      "isGuidance",
+      "guidanceBy",
+      "guidanceAt",
+      "deletedAt",
+      "createdAt",
+      "updatedAt",
+    ],
+    resource_versions: [
+      "resourceId",
+      "version",
+      "kind",
+      "title",
+      "markdown",
+      "url",
+      "fileName",
+      "storageKey",
+      "mimeType",
+      "size",
+      "checksum",
+      "authorId",
+      "authorName",
+      "createdAt",
+    ],
+    issue_resource_links: [
+      "id",
+      "issueId",
+      "resourceId",
+      "resourceVersion",
+      "createdBy",
+      "createdAt",
+    ],
+    session_resource_refs: [
+      "id",
+      "sessionId",
+      "eventId",
+      "resourceId",
+      "resourceVersion",
+      "recordedBy",
+      "createdAt",
+    ],
+    resource_events: [
+      "id",
+      "resourceId",
+      "action",
+      "revision",
+      "authorId",
+      "authorName",
+      "createdAt",
+    ],
+    resource_operations: [
+      "actorId",
+      "kind",
+      "operationId",
+      "projectId",
+      "payloadHash",
+      "result",
+    ],
+  },
+} as const;
 export type SchemaVersion = keyof typeof schemaManifests;
 export function isSchemaVersion(value: unknown): value is SchemaVersion {
   return (
@@ -245,6 +316,7 @@ export function isSchemaVersion(value: unknown): value is SchemaVersion {
     value === 3 ||
     value === 4 ||
     value === 5 ||
-    value === 6
+    value === 6 ||
+    value === 7
   );
 }

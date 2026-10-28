@@ -3,6 +3,7 @@ import { initial } from "./001-initial.js";
 import { sessions } from "./002-sessions.js";
 import { releases } from "./004-releases.js";
 import { relations } from "./003-relations.js";
+import { resources } from "./007-resources.js";
 import { templates } from "./006-templates.js";
 import { views } from "./005-views.js";
 export interface Migration {
@@ -16,6 +17,7 @@ export const migrations: readonly Migration[] = [
   { version: 4, run: releases },
   { version: 5, run: views },
   { version: 6, run: templates },
+  { version: 7, run: resources },
 ];
 /** One transaction for every pending migration; never mutate a future-version database. */
 export function migrate(

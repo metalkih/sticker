@@ -1,3 +1,4 @@
+import { validateResourceVersionFiles } from "./resource-files.js";
 import {
   issueTemplateSchema,
   templateVersionSchema,
@@ -167,7 +168,12 @@ export function validateBackup(stageDir: string): {
       if (attachment.size !== size)
         throw new Error(`Attachment size mismatch for ${row.storageKey}.`);
     }
-    return { schemaVersion: version, fileCount: attachments.length };
+    const resourceFileCount =
+      version >= 7 ? validateResourceVersionFiles(root, db) : 0;
+    return {
+      schemaVersion: version,
+      fileCount: attachments.length + resourceFileCount,
+    };
   } finally {
     db.close();
   }

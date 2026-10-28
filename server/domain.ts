@@ -31,6 +31,7 @@ import {
   templateCreateHints,
   type TemplateDefaults,
 } from "./contracts/templates.js";
+import { ResourceService } from "./features/resources.js";
 import { TemplateService } from "./features/templates.js";
 import { ReleaseService } from "./features/releases.js";
 import { ViewService } from "./features/views.js";
@@ -202,6 +203,7 @@ function reportRow(row: Row): AgentReport {
 /** All authorization and business rules shared by HTTP and MCP live here. */
 export class Store {
   private context: StoreContext;
+  readonly resources: ResourceService;
   readonly templates: TemplateService;
   readonly sessions: SessionService;
   readonly relations: RelationService;
@@ -225,6 +227,7 @@ export class Store {
     ],
   ) {
     this.context = new StoreContext(dataDir, clock);
+    this.resources = new ResourceService(this.context);
     this.templates = new TemplateService(this.context, actors);
     this.sessions = new SessionService(this.context);
     this.relations = new RelationService(this.context);
@@ -412,14 +415,14 @@ export class Store {
       this.project(actor, projectId);
       const count = this.db
         .prepare(
-          "SELECT (SELECT COUNT(*) FROM issues WHERE projectId=?) + (SELECT COUNT(*) FROM versions WHERE projectId=?) + (SELECT COUNT(*) FROM issue_templates WHERE projectId=? AND deletedAt IS NULL) AS n",
+          "SELECT (SELECT COUNT(*) FROM issues WHERE projectId=?) + (SELECT COUNT(*) FROM versions WHERE projectId=?) + (SELECT COUNT(*) FROM issue_templates WHERE projectId=? AND deletedAt IS NULL) + (SELECT COUNT(*) FROM resources WHERE projectId=? AND deletedAt IS NULL) AS n",
         )
-        .get(projectId, projectId, projectId);
+        .get(projectId, projectId, projectId, projectId);
       if (Number(count?.n) > 0)
         throw new DomainError(
           409,
           "PROJECT_NOT_EMPTY",
-          "프로젝트의 이슈·버전·템플릿을 먼저 삭제하세요.",
+          "프로젝트의 이슈·버전·템플릿·자료를 먼저 삭제하세요.",
         );
       this.db.prepare("DELETE FROM projects WHERE id=?").run(projectId);
     });

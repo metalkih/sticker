@@ -1,3 +1,4 @@
+import { registerResourceTools } from "./mcp/resources.js";
 import { registerTemplateTools } from "./mcp/templates.js";
 import { templateCreateHints } from "./contracts/templates.js";
 import { registerReleaseTools } from "./mcp/releases.js";
@@ -221,6 +222,14 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
       async (args) => safely(async () => result(await run(args))),
     );
   }
+  registerResourceTools({
+    tool,
+    json,
+    request,
+    fail: (status, code, message) => {
+      throw new ApiError(status, code, message);
+    },
+  });
   registerTemplateTools({ tool, json });
   registerSessionTools({ tool, json });
   registerRelationTools({ tool, json });
