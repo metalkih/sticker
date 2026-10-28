@@ -1,4 +1,7 @@
-import { savedViewSchema } from "../../server/contracts/views.js";
+import {
+  savedViewSchema,
+  viewPreferencesSchema,
+} from "../../server/contracts/views.js";
 import { test, expect } from "@playwright/test";
 import { projectSchema, issueSchema } from "../../server/response-schemas.js";
 test("private saved views keep filters, favorites, defaults and deep links on desktop and mobile", async ({
@@ -120,7 +123,25 @@ test("private saved views keep filters, favorites, defaults and deep links on de
   await expect(page.getByLabel("이슈 검색", { exact: true })).toHaveValue(
     "저장한 조건",
   );
-  await page.goto(`/#project=${project.id}`);
+  const storedPreferences = viewPreferencesSchema.parse(
+    await (await request.get(`/api/view-preferences/${project.id}`)).json(),
+  );
+  expect(storedPreferences.defaultViewId).toBe(id);
+  // A same-project hash change is an explicit ordinary-board selection, not entry.
+  await page
+    .getByRole("navigation", { name: "작업 공간 메뉴" })
+    .getByRole("button", { name: "프로젝트", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "프로젝트", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("main")
+    .getByRole("button")
+    .filter({
+      has: page.getByRole("heading", { name: project.name, exact: true }),
+    })
+    .click();
   await expect(page).toHaveURL(/view=/);
   await expect(page.getByLabel("이슈 검색", { exact: true })).toHaveValue(
     "저장한 조건",
