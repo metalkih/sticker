@@ -13,3 +13,6 @@ backups/
 *.tar.gz
 .env.*
 !.env.example
+
+# Local lint output
+lint-report.json
