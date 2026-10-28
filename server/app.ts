@@ -1,9 +1,10 @@
+import { registerResourceRoutes } from "./routes/resources.js";
+import { FileStorage } from "./file-storage.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import express, { type ErrorRequestHandler, type Request } from "express";
 import multer from "multer";
-import { mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
-import { randomUUID } from "node:crypto";
+import { mkdirSync, existsSync, unlinkSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { AuthManager, type AgentConfig } from "./auth.js";
 import { Store, DomainError } from "./domain.js";
 import { registerReleaseRoutes } from "./routes/releases.js";
@@ -26,27 +27,6 @@ function passwordInput(body: unknown): unknown {
     ? body.password
     : undefined;
 }
-function detectedMime(data: Buffer): string {
-  if (
-    data.length >= 8 &&
-    data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-  )
-    return "image/png";
-  if (data.length >= 3 && data[0] === 255 && data[1] === 216 && data[2] === 255)
-    return "image/jpeg";
-  if (
-    data.length >= 6 &&
-    ["GIF87a", "GIF89a"].includes(data.subarray(0, 6).toString())
-  )
-    return "image/gif";
-  if (
-    data.length >= 12 &&
-    data.subarray(0, 4).toString() === "RIFF" &&
-    data.subarray(8, 12).toString() === "WEBP"
-  )
-    return "image/webp";
-  return "application/octet-stream";
-}
 export function createApp(config: AppConfig) {
   const auth = new AuthManager({
     ownerPassword: config.ownerPassword,
@@ -64,6 +44,7 @@ export function createApp(config: AppConfig) {
       appOrigin.origin,
       auth.directory(),
     ),
+    files = new FileStorage(dataDir),
     app = express();
   const origins = new Set([appOrigin.origin]);
   if (["localhost", "127.0.0.1"].includes(appOrigin.hostname)) {
@@ -142,6 +123,7 @@ export function createApp(config: AppConfig) {
       .end();
   });
   registerTemplateRoutes(app, store.templates);
+  registerResourceRoutes(app, store.resources, files);
   registerSessionRoutes(app, store.sessions);
   registerRelationRoutes(app, store.relations);
   registerViewRoutes(app, store.views);
@@ -236,30 +218,21 @@ export function createApp(config: AppConfig) {
     (req, res) => {
       if (!req.file)
         throw new DomainError(400, "FILE_REQUIRED", "파일 하나를 선택하세요.");
-      const storageKey = randomUUID();
-      const name =
-        basename(req.file.originalname.replace(/\\/g, "/"))
-          .split("")
-          .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127)
-          .join("")
-          .slice(0, 255) || "attachment";
-      writeFileSync(join(uploadDir, storageKey), req.file.buffer, {
-        flag: "wx",
-        mode: 0o600,
-      });
-      try {
-        const attachment = store.addAttachment(actor(req), identifier(req), {
-          kind: "file",
-          name,
-          storageKey,
-          mimeType: detectedMime(req.file.buffer),
-          size: req.file.size,
-        });
-        res.status(201).json(attachment);
-      } catch (e) {
-        removeFile(storageKey);
-        throw e;
-      }
+      const attachment = files.withUpload(
+        req.file.buffer,
+        req.file.originalname,
+        (file) => {
+          const value = store.addAttachment(actor(req), identifier(req), {
+            kind: "file",
+            name: file.fileName,
+            storageKey: file.storageKey,
+            mimeType: file.mimeType,
+            size: file.size,
+          });
+          return { storageKey: file.storageKey, value };
+        },
+      );
+      res.status(201).json(attachment);
     },
   );
   function safePath(storageKey: string) {

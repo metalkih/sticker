@@ -9,6 +9,9 @@ export interface Route {
   bucket: string;
   view: string;
   template: string;
+  resource: string;
+  resourceScope: string;
+  resourceVersion: string;
 }
 export const readRoute = (): Route => {
   const params = new URLSearchParams(window.location.hash.slice(1));
@@ -16,7 +19,8 @@ export const readRoute = (): Route => {
     rawRequest = params.get("request") || "",
     issue = params.get("issue") || "",
     rawVersion = params.get("version") || "",
-    rawTemplate = params.get("template") || "";
+    rawTemplate = params.get("template") || "",
+    rawResource = params.get("resource") || "";
   const section =
     params.get("section") ||
     (rawSession
@@ -25,11 +29,22 @@ export const readRoute = (): Route => {
         ? "inbox"
         : rawVersion
           ? "versions"
-          : rawTemplate
-            ? "templates"
-            : "issues");
+          : rawResource
+            ? "resources"
+            : rawTemplate
+              ? "templates"
+              : "issues");
   return {
     section,
+    resource: section === "resources" ? rawResource : "",
+    resourceScope:
+      section === "resources" ? params.get("resourceScope") || "" : "",
+    resourceVersion:
+      section === "resources" &&
+      rawResource &&
+      /^[1-9]\d*$/.test(params.get("resourceVersion") || "")
+        ? params.get("resourceVersion") || ""
+        : "",
     template: section === "templates" ? rawTemplate : "",
     view: section === "issues" ? params.get("view") || "" : "",
     project: params.get("project") || "",
@@ -107,6 +122,9 @@ export function subscribeRoute(listener: (route: Route) => void) {
 export function navigate(next: Partial<Route>) {
   const merged = { ...readRoute(), ...next };
   if (next.section && next.section !== readRoute().section) {
+    merged.resource = next.resource ?? "";
+    merged.resourceScope = next.resourceScope ?? "";
+    merged.resourceVersion = next.resourceVersion ?? "";
     merged.template = next.template ?? "";
     merged.view = next.view ?? "";
     merged.session = next.session ?? "";
@@ -117,6 +135,9 @@ export function navigate(next: Partial<Route>) {
   }
   if (next.project !== undefined && next.project !== readRoute().project) {
     merged.view = next.view ?? "";
+    merged.resource = next.resource ?? "";
+    merged.resourceScope = next.resourceScope ?? "";
+    merged.resourceVersion = next.resourceVersion ?? "";
     merged.template = next.template ?? "";
   }
   const params = new URLSearchParams();
