@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { initial } from "./001-initial.js";
 import { sessions } from "./002-sessions.js";
+import { relations } from "./003-relations.js";
 export interface Migration {
   version: number;
   run: (db: DatabaseSync) => void;
@@ -8,6 +9,7 @@ export interface Migration {
 export const migrations: readonly Migration[] = [
   { version: 1, run: initial },
   { version: 2, run: sessions },
+  { version: 3, run: relations },
 ];
 /** One transaction for every pending migration; never mutate a future-version database. */
 export function migrate(

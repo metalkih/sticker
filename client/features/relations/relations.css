@@ -1,0 +1,132 @@
+.issue-relations {
+  border-top: 1px solid var(--line, #e8e9e0);
+  padding-top: 22px;
+  margin: 22px 0;
+  overflow-wrap: anywhere;
+}
+.relations-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.relations-heading h3 {
+  margin-right: auto;
+}
+.relation-group h4 {
+  font-size: 12px;
+  margin: 16px 0 8px;
+}
+.relation-group ul {
+  padding: 0;
+  list-style: none;
+}
+.relation-group li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px dashed #e5e6dd;
+  padding: 8px 0;
+}
+.relation-link {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 5px 0;
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: inherit;
+  cursor: pointer;
+}
+.relation-link > span:first-child {
+  font-size: 11px;
+}
+.relation-link .status-pill {
+  margin-left: 5px;
+}
+.relation-state {
+  font-size: 11px;
+  flex-basis: 100%;
+}
+
+.relation-candidates {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.relation-candidate {
+  border: 1px solid #dfe2d5;
+  padding: 10px;
+  background: #fafbf6;
+  text-align: left;
+  border-radius: 7px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.relation-candidate[aria-pressed="true"] {
+  border-color: #687b22;
+  background: #eef4d5;
+}
+.relation-summary {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.relation-blocker {
+  background: #f8e6d5;
+  color: #6d411c;
+  border: 1px solid #e8c8a9;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font: inherit;
+  cursor: pointer;
+}
+.relation-child-count {
+  display: block;
+  flex-basis: 100%;
+  color: #5f6650;
+}
+.relation-stale {
+  color: #8a491c;
+  flex-basis: 100%;
+}
+.issue-card-shell {
+  background: white;
+  border: 1px solid #e0e3d7;
+  border-radius: 5px;
+  box-shadow: 0 2px 2px #20252008;
+}
+.issue-card-shell > .issue-card {
+  border: 0;
+  box-shadow: none;
+  margin: 0;
+  width: 100%;
+}
+.issue-list-item {
+  border-bottom: 1px solid #e7e8df;
+}
+.issue-list-item > .issue-list-row {
+  width: 100%;
+  border-bottom: 0;
+}
+.issue-list-item > .relation-summary {
+  padding-left: 36px;
+}
+@media (max-width: 600px) {
+  .relations-heading {
+    gap: 7px;
+  }
+  .relation-summary {
+    max-width: 100%;
+  }
+  .relation-group li {
+    align-items: flex-start;
+  }
+}

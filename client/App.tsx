@@ -1,15 +1,12 @@
+import { IssueCard } from "./features/issues/IssueCard.js";
+import { IssueListRow } from "./features/issues/IssueListRow.js";
+import { useRelationSummaries } from "./features/relations/RelationSummary.js";
 import { bootstrapSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  Bootstrap,
-  Issue,
-  Project,
-  Status,
-  Version,
-} from "../server/types.js";
+import type { Bootstrap, Project, Status, Version } from "../server/types.js";
 import { STATUSES } from "../server/types.js";
 import { api, ApiError, json, errorText } from "./api.js";
-import { Icon, Empty, ErrorNotice, StatusPill } from "./components.js";
+import { Icon, Empty, ErrorNotice } from "./components.js";
 import {
   ProjectEditor,
   VersionEditor,
@@ -20,7 +17,6 @@ import IssuePanel from "./IssuePanel.js";
 import {
   statusNames,
   statusIcons,
-  priorityIcons,
   priorityNames,
   versionStateNames,
   dateText,
@@ -30,6 +26,7 @@ import AgentSessions from "./features/sessions/AgentSessions.js";
 import OwnerInbox from "./features/sessions/OwnerInbox.js";
 export default function App() {
   const [data, setData] = useState<Bootstrap | null>(null);
+  const relations = useRelationSummaries(data);
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState("");
@@ -675,6 +672,11 @@ export default function App() {
                                   key={i.id}
                                   issue={i}
                                   data={data}
+                                  relation={relations.summaries[i.id]}
+                                  relationStale={!!relations.error}
+                                  onRelationOpen={(id) => {
+                                    navigate({ issue: id });
+                                  }}
                                   onOpen={() => {
                                     navigate({ issue: i.id });
                                   }}
@@ -699,36 +701,36 @@ export default function App() {
                       <span>목표 버전</span>
                     </div>
                     {filtered.map((i) => (
-                      <button
-                        className="issue-list-row"
+                      <IssueListRow
                         key={i.id}
-                        onClick={() => {
+                        issue={i}
+                        data={data}
+                        relation={relations.summaries[i.id]}
+                        relationStale={!!relations.error}
+                        onOpen={() => {
                           navigate({ issue: i.id });
                         }}
-                      >
-                        <span className="list-issue-title">
-                          <span
-                            className={`priority-icon priority-${i.priority}`}
-                            title={priorityNames[i.priority]}
-                          >
-                            {priorityIcons[i.priority]}
-                          </span>
-                          <span className="issue-key">{i.key}</span>
-                          <strong>{i.title}</strong>
-                        </span>
-                        <StatusPill status={i.status} />
-                        <span className="list-assignee">
-                          {i.assignee || "미지정"}
-                        </span>
-                        <span className="list-version">
-                          {data.versions.find((v) => v.id === i.targetVersionId)
-                            ?.name || "—"}
-                        </span>
-                      </button>
+                        onRelationOpen={(id) => {
+                          navigate({ issue: id });
+                        }}
+                      />
                     ))}
                   </div>
                 )}
               </div>
+              {relations.error && (
+                <div role="alert" className="error-notice">
+                  관계 요약을 갱신하지 못했어요. 이전 정보일 수 있습니다.{" "}
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      void relations.reload();
+                    }}
+                  >
+                    관계 요약 재시도
+                  </button>
+                </div>
+              )}
             </>
           )}
           {route.section === "projects" && (
@@ -1001,6 +1003,9 @@ export default function App() {
           data={data}
           onClose={closeIssue}
           onChanged={refresh}
+          onOpen={(id) => {
+            navigate({ issue: id });
+          }}
         />
       )}
       {deleteTarget && (
@@ -1144,56 +1149,5 @@ function Login({
       </main>
       <footer>STICKER — FOR YOUR NEXT LITTLE BIG THING.</footer>
     </div>
-  );
-}
-function IssueCard({
-  issue: i,
-  data,
-  onOpen,
-}: {
-  issue: Issue;
-  data: Bootstrap;
-  onOpen: () => void;
-}) {
-  const p = data.projects.find((p) => p.id === i.projectId);
-  const version = data.versions.find((v) => v.id === i.targetVersionId);
-  return (
-    <button className={`issue-card card-${i.status}`} onClick={onOpen}>
-      <div className="issue-card-top">
-        <span className="issue-key">{i.key}</span>
-        <span
-          className={`priority-icon priority-${i.priority}`}
-          title={priorityNames[i.priority]}
-        >
-          {priorityIcons[i.priority]}
-        </span>
-      </div>
-      <h4>{i.title}</h4>
-      {i.labels.length > 0 && (
-        <div className="card-labels">
-          {i.labels.slice(0, 3).map((l) => (
-            <span className="label-tag" key={l}>
-              {l}
-            </span>
-          ))}
-          {i.labels.length > 3 && (
-            <span className="label-tag">+{i.labels.length - 3}</span>
-          )}
-        </div>
-      )}
-      <div className="issue-card-bottom">
-        <span className="card-project">
-          <i className="project-dot" style={{ background: p?.color }} />
-          {version?.name || p?.name}
-        </span>
-        <span className="card-assignee" title={i.assignee || "미지정"}>
-          {i.assignee ? (
-            <span className="avatar tiny">{i.assignee.slice(0, 1)}</span>
-          ) : (
-            <span className="unassigned-avatar">○</span>
-          )}
-        </span>
-      </div>
-    </button>
   );
 }

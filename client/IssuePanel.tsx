@@ -1,3 +1,4 @@
+import { IssueRelations } from "./features/relations/IssueRelations.js";
 import { issueDetailSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { Bootstrap, IssueDetail, Attachment } from "../server/types.js";
@@ -17,11 +18,13 @@ export default function IssuePanel({
   data,
   onClose,
   onChanged,
+  onOpen,
 }: {
   id: string;
   data: Bootstrap;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onOpen?: (id: string) => void;
 }) {
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [error, setError] = useState("");
@@ -268,6 +271,13 @@ export default function IssuePanel({
                 {issue.description || "설명 없음"}
               </div>
             </section>
+            <IssueRelations
+              key={issue.id}
+              issue={issue}
+              data={data}
+              onChanged={changed}
+              onOpen={onOpen ?? (() => {})}
+            />
             <section className="detail-section">
               <div className="section-heading">
                 <h3>

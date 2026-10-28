@@ -11,3 +11,7 @@ All JSON responses are direct objects/arrays, not wrapped. Errors `{error:string
 `/api/reports`: POST `{projectId,issueId?,state,message}` -> AgentReport (agent only; identity from auth). Reports are self-reported and stale after 5min; never proof of a running process.
 
 Store interface (domain owner implements `server/domain.ts`): `new Store(dataDir:string)`; `.close()`; `.bootstrap(actor)`; `.getIssue(actor,id)`; `.createProject(actor,input)`, `.updateProject(actor,id,input)`, `.deleteProject(actor,id)`; corresponding Version and Issue methods; `.addComment(actor,issueId,input)`, `.deleteComment(actor,id)`; `.addAttachment(actor,issueId,input)` accepts file metadata or link; `.getAttachment(actor,id)`; `.deleteAttachment(actor,id)` returns removed Attachment; `.reportAgent(actor,input)`. Inputs use unknown with runtime validation; output typed. Export DomainError with `status`, `code`, `message`. API controls credential/session, uploaded bytes and static SPA serving; domain controls authorization, all relational checks and business logic. Store uses node:sqlite and path `<dataDir>/sticker.sqlite`; upload files `<dataDir>/uploads/<storageKey>` handled by API. Metadata never supplies authorId. API removes deleted attachment bytes; stale orphan files can be cleaned via backup maintenance. Store won't import express.
+
+## 이슈 관계 (schema 3)
+
+같은 프로젝트의 부모/하위, 관련, 차단/피차단 관계 및 일괄 보드 요약 API를 제공합니다. 양끝 이슈 revision CAS와 현재 권한을 확인하며 자기 참조·방향별 순환을 거부합니다. [요청·응답 및 의미](ISSUE-RELATIONS.md)를 참고하세요. `done`은 차단을 해소하지 않으며 `closed` 후에도 자동 시작·종결은 없습니다.
