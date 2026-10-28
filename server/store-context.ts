@@ -15,6 +15,10 @@ const tables = new Set([
   "agent_sessions",
   "session_requests",
   "session_responses",
+  "issue_templates",
+  "template_versions",
+  "template_operations",
+  "issue_creation_operations",
 ]);
 export class StoreContext {
   readonly db;

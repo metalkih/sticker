@@ -1,3 +1,4 @@
+import { registerTemplateRoutes } from "./routes/templates.js";
 import express, { type ErrorRequestHandler, type Request } from "express";
 import multer from "multer";
 import { mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
@@ -57,7 +58,12 @@ export function createApp(config: AppConfig) {
   const appOrigin = new URL(config.appOrigin ?? "http://localhost:8787");
   if (!["http:", "https:"].includes(appOrigin.protocol))
     throw new Error("APP_ORIGIN must be an http(s) origin.");
-  const store = new Store(dataDir, Date.now, appOrigin.origin),
+  const store = new Store(
+      dataDir,
+      Date.now,
+      appOrigin.origin,
+      auth.directory(),
+    ),
     app = express();
   const origins = new Set([appOrigin.origin]);
   if (["localhost", "127.0.0.1"].includes(appOrigin.hostname)) {
@@ -135,6 +141,7 @@ export function createApp(config: AppConfig) {
       .status(204)
       .end();
   });
+  registerTemplateRoutes(app, store.templates);
   registerSessionRoutes(app, store.sessions);
   registerRelationRoutes(app, store.relations);
   registerViewRoutes(app, store.views);
@@ -337,7 +344,11 @@ export function createApp(config: AppConfig) {
       return;
     }
     if (err instanceof DomainError) {
-      res.status(err.status).json({ error: err.message, code: err.code });
+      res.status(err.status).json({
+        error: err.message,
+        code: err.code,
+        ...(err.fields ? { fields: err.fields } : {}),
+      });
       return;
     }
     if (err instanceof multer.MulterError) {

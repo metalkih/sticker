@@ -66,6 +66,18 @@ export class AuthManager {
     this.passwordHash = scryptSync(options.ownerPassword, this.salt, 32);
     this.sessionTtlMs = options.sessionTtlMs ?? 12 * 60 * 60 * 1000;
   }
+  directory(): Actor[] {
+    return [
+      { ...owner },
+      ...this.agents.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        role: "agent" as const,
+        canWrite: agent.canWrite,
+        projectIds: agent.projectIds === null ? null : [...agent.projectIds],
+      })),
+    ];
+  }
   private cookieToken(cookie?: string) {
     return cookie
       ?.split(";")

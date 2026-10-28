@@ -64,10 +64,12 @@ compose up -d --wait --wait-timeout 90 sticker
 compose exec -T sticker node --input-type=module - initialize < tests/container-smoke.mjs
 compose exec -T sticker node --input-type=module - initialize < tests/container-release-smoke.mjs
 compose exec -T sticker node --input-type=module - initialize < tests/container-views-smoke.mjs
+compose exec -T sticker node --input-type=module - initialize < tests/container-templates-smoke.mjs
 compose up -d --force-recreate --wait --wait-timeout 90 sticker
 compose exec -T sticker node --input-type=module - verify < tests/container-smoke.mjs
 compose exec -T sticker node --input-type=module - verify < tests/container-release-smoke.mjs
 compose exec -T sticker node --input-type=module - verify < tests/container-views-smoke.mjs
+compose exec -T sticker node --input-type=module - verify < tests/container-templates-smoke.mjs
 bash scripts/backup.sh "$temporary/fixture.tar.gz"
 # backup restarts an originally running service, but `start` is not health readiness.
 compose up -d --wait --wait-timeout 90 sticker
@@ -77,6 +79,7 @@ compose up -d --wait --wait-timeout 90 sticker
 compose exec -T sticker node --input-type=module - verify < tests/container-smoke.mjs
 compose exec -T sticker node --input-type=module - verify < tests/container-release-smoke.mjs
 compose exec -T sticker node --input-type=module - verify < tests/container-views-smoke.mjs
+compose exec -T sticker node --input-type=module - verify < tests/container-templates-smoke.mjs
 
 # Agent access is optional. Add a generated read-only grant only after core tests.
 STICKER_AGENT_TOKEN=$(docker run --rm --network none --entrypoint node "$STICKER_IMAGE" -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')

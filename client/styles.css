@@ -3683,3 +3683,124 @@ main {
     display: none;
   }
 }
+.template-workspace {
+  min-width: 0;
+}
+.template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.template-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.template-cards article {
+  border: 1px solid #dedfd2;
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  background: #fafaf6;
+  min-width: 0;
+}
+.template-cards h3 {
+  margin: 0;
+}
+.template-form {
+  max-width: 900px;
+}
+.template-form fieldset {
+  border: 1px solid #dedfd2;
+  border-radius: 8px;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+.template-form legend {
+  font-weight: 700;
+}
+.template-required {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.template-required label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.template-required input {
+  width: auto;
+}
+.template-form pre,
+.template-issue-fields pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  border: 1px solid #dedfd2;
+  border-radius: 8px;
+  background: #fafaf6;
+  padding: 12px;
+  font-size: 13px;
+}
+.template-issue-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.template-issue-fields h3 {
+  margin: 0;
+}
+.template-issue-fields [role="alert"] {
+  font-size: 12px;
+  color: #a72d30;
+}
+.template-conflict {
+  border: 1px solid #d8aa65;
+  padding: 12px;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+}
+.template-provenance {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  padding: 12px 0;
+}
+.template-provenance code {
+  overflow-wrap: anywhere;
+}
+.template-default-preview {
+  display: grid;
+  gap: 8px;
+}
+.template-default-preview div {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
+  gap: 12px;
+}
+.template-default-preview dt {
+  color: #626858;
+}
+.template-default-preview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.issue-editor-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+.template-workspace h2,
+.template-workspace h3,
+.template-workspace .button {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

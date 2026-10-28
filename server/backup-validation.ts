@@ -1,3 +1,7 @@
+import {
+  issueTemplateSchema,
+  templateVersionSchema,
+} from "./contracts/templates.js";
 import { DatabaseSync } from "node:sqlite";
 import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -73,6 +77,54 @@ export function validateBackup(stageDir: string): {
       throw new Error("Sticker database integrity_check failed.");
     if (db.prepare("PRAGMA foreign_key_check").all().length > 0)
       throw new Error("Sticker database foreign_key_check failed.");
+    if (version >= 6) {
+      try {
+        const templates = issueTemplateSchema
+          .array()
+          .parse(db.prepare("SELECT * FROM issue_templates").all());
+        const versions = db
+          .prepare("SELECT * FROM template_versions")
+          .all()
+          .map((row) => {
+            const requiredFields: unknown = JSON.parse(
+                z.string().parse(row.requiredFields),
+              ),
+              defaults: unknown = JSON.parse(z.string().parse(row.defaults));
+            return templateVersionSchema.parse({
+              ...row,
+              requiredFields,
+              defaults,
+            });
+          });
+        for (const template of templates)
+          if (
+            !versions.some(
+              (item) =>
+                item.templateId === template.id &&
+                item.version === template.currentVersion,
+            )
+          )
+            throw new Error("Invalid current version");
+        for (const table of [
+          "template_operations",
+          "issue_creation_operations",
+        ] as const)
+          for (const row of db.prepare(`SELECT payload FROM ${table}`).all()) {
+            const payload: unknown = JSON.parse(z.string().parse(row.payload));
+            z.record(z.string(), z.unknown()).parse(payload);
+          }
+      } catch {
+        throw new Error("Invalid template version data in backup.");
+      }
+      if (
+        db
+          .prepare(
+            "SELECT i.id FROM issues i LEFT JOIN issue_templates t ON t.id=i.templateId LEFT JOIN template_versions v ON v.templateId=i.templateId AND v.version=i.templateVersion WHERE i.templateId IS NOT NULL AND (v.version IS NULL OR t.projectId<>i.projectId) LIMIT 1",
+          )
+          .get()
+      )
+        throw new Error("Invalid template provenance in backup.");
+    }
     const attachments = db
       .prepare("SELECT storageKey,size FROM attachments WHERE kind='file'")
       .all();

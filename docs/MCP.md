@@ -128,3 +128,7 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 ## 버전 출시 준비도 (schema v4)
 
 `sticker_get_version_readiness`는 목표·발견·수정 이슈와 미완료/done/closed/차단 집계를, `sticker_get_version_changelog`는 저장된 Markdown 초안을 같은 프로젝트 권한으로 읽습니다. 일반 버전 수정에는 `revision`이 필요합니다. 출시 상태 확인은 owner-only 웹/API 흐름이며 에이전트용 출시/외부 발행 도구는 없습니다. [출시 계약](RELEASES.md).
+
+## 프로젝트 이슈 템플릿 (schema 6)
+
+`sticker_list_templates`, `sticker_get_template`, `sticker_preview_template`은 현재 범위의 정의를 읽습니다. `sticker_create_issue`의 `templateId`, 현재 `templateVersion`, `templateValues`, UUID `operationId`로 같은 필수 값 검증을 거쳐 생성합니다. 템플릿 관리/실행/승인 도구는 없습니다. [정확한 생성 및 재시도 계약](ISSUE-TEMPLATES.md).

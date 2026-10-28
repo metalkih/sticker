@@ -26,6 +26,12 @@ import {
 export { DomainError } from "./domain-error.js";
 import { DomainError } from "./domain-error.js";
 import { StoreContext } from "./store-context.js";
+import { canonicalJson } from "./canonical-json.js";
+import {
+  templateCreateHints,
+  type TemplateDefaults,
+} from "./contracts/templates.js";
+import { TemplateService } from "./features/templates.js";
 import { ReleaseService } from "./features/releases.js";
 import { ViewService } from "./features/views.js";
 import { RelationService } from "./features/relations.js";
@@ -105,6 +111,7 @@ const issueCreate = z
     labels: issueFields.labels.default([]),
   })
   .strict();
+const templateIssueCreate = issueCreate.extend(templateCreateHints).strict();
 const issueUpdate = z
   .object({ ...issueFields })
   .partial()
@@ -195,6 +202,7 @@ function reportRow(row: Row): AgentReport {
 /** All authorization and business rules shared by HTTP and MCP live here. */
 export class Store {
   private context: StoreContext;
+  readonly templates: TemplateService;
   readonly sessions: SessionService;
   readonly relations: RelationService;
   readonly views: ViewService;
@@ -206,8 +214,18 @@ export class Store {
     dataDir: string,
     clock: () => number = Date.now,
     origin = "http://localhost:8787",
+    actors: readonly Actor[] = [
+      {
+        id: "owner",
+        name: "나",
+        role: "owner",
+        canWrite: true,
+        projectIds: null,
+      },
+    ],
   ) {
     this.context = new StoreContext(dataDir, clock);
+    this.templates = new TemplateService(this.context, actors);
     this.sessions = new SessionService(this.context);
     this.relations = new RelationService(this.context);
     this.views = new ViewService(this.context, this.relations);
@@ -394,14 +412,14 @@ export class Store {
       this.project(actor, projectId);
       const count = this.db
         .prepare(
-          "SELECT (SELECT COUNT(*) FROM issues WHERE projectId=?) + (SELECT COUNT(*) FROM versions WHERE projectId=?) AS n",
+          "SELECT (SELECT COUNT(*) FROM issues WHERE projectId=?) + (SELECT COUNT(*) FROM versions WHERE projectId=?) + (SELECT COUNT(*) FROM issue_templates WHERE projectId=? AND deletedAt IS NULL) AS n",
         )
-        .get(projectId, projectId);
+        .get(projectId, projectId, projectId);
       if (Number(count?.n) > 0)
         throw new DomainError(
           409,
           "PROJECT_NOT_EMPTY",
-          "프로젝트의 이슈와 버전을 먼저 삭제하세요.",
+          "프로젝트의 이슈·버전·템플릿을 먼저 삭제하세요.",
         );
       this.db.prepare("DELETE FROM projects WHERE id=?").run(projectId);
     });
@@ -500,31 +518,130 @@ export class Store {
   }
   createIssue(actor: Actor, input: unknown): Issue {
     this.write(actor);
-    const data = parse(issueCreate, input);
-    if (data.status === "closed" && actor.role !== "owner")
+    const envelope = parse(templateIssueCreate, input),
+      raw = z.record(z.string(), z.unknown()).parse(input);
+    if (
+      (envelope.templateId && !envelope.templateVersion) ||
+      (!envelope.templateId &&
+        (envelope.templateVersion !== undefined ||
+          envelope.templateValues !== undefined))
+    )
       throw new DomainError(
-        403,
-        "OWNER_REQUIRED",
-        "소유자만 이슈를 종료할 수 있습니다.",
+        400,
+        "VALIDATION",
+        "templateId와 templateVersion을 함께 보내세요.",
       );
+    const metadata = new Set([
+      "templateId",
+      "templateVersion",
+      "templateValues",
+      "operationId",
+    ]);
+    const explicit: Record<string, unknown> = {},
+      fingerprintValues: Record<string, unknown> = {};
+    for (const key of Object.keys(envelope) as (keyof typeof envelope)[]) {
+      if (!(key in raw) || envelope[key] === undefined) continue;
+      if (key !== "operationId") fingerprintValues[key] = envelope[key];
+      if (!metadata.has(key)) explicit[key] = envelope[key];
+    }
+    const payload = canonicalJson(fingerprintValues);
     return this.tx(() => {
-      const p = this.project(actor, data.projectId),
-        internal = this.get("projects", p.id);
+      const p = this.project(actor, envelope.projectId);
+      if (envelope.operationId) {
+        const prior = this.db
+          .prepare(
+            "SELECT payload,issueId FROM issue_creation_operations WHERE actorId=? AND operationId=?",
+          )
+          .get(actor.id, envelope.operationId);
+        if (prior) {
+          if (prior.payload !== payload)
+            throw new DomainError(
+              409,
+              "OPERATION_CONFLICT",
+              "동일 operationId의 이슈 내용이 다릅니다.",
+            );
+          if (prior.issueId === null)
+            throw new DomainError(
+              409,
+              "OPERATION_TARGET_GONE",
+              "이미 삭제된 이슈 생성 작업입니다.",
+            );
+          return this.issue(actor, z.string().parse(prior.issueId));
+        }
+      }
+      let description = envelope.description,
+        templateId: string | null = null,
+        templateVersion: number | null = null,
+        defaults: TemplateDefaults = {};
+      if (envelope.templateId && envelope.templateVersion) {
+        const overrides: TemplateDefaults = {};
+        for (const field of [
+          "assignee",
+          "targetVersionId",
+          "foundVersionId",
+          "fixedVersionId",
+        ] as const) {
+          if (field in raw) {
+            const value = envelope[field];
+            if (field === "assignee")
+              overrides.assignee = z.string().parse(value);
+            else overrides[field] = value;
+          }
+        }
+        const applied = this.templates.apply(actor, p.id, {
+          templateId: envelope.templateId,
+          templateVersion: envelope.templateVersion,
+          templateValues: envelope.templateValues,
+          ...("description" in raw ? { body: envelope.description } : {}),
+          overrides,
+        });
+        defaults = applied.defaults;
+        description = applied.description;
+        templateId = applied.templateId;
+        templateVersion = applied.templateVersion;
+      }
+      const data = parse(issueCreate, {
+        ...defaults,
+        ...explicit,
+        description,
+      });
+      if (data.status === "closed" && actor.role !== "owner")
+        throw new DomainError(
+          403,
+          "OWNER_REQUIRED",
+          "소유자만 이슈를 종료할 수 있습니다.",
+        );
       this.versionsBelong(p.id, data);
-      const stamp = now(),
-        issue: Issue = {
-          id: randomUUID(),
-          key: `${p.key}-${String(z.number().int().positive().parse(internal.nextIssue))}`,
-          ...data,
-          revision: 1,
-          createdAt: stamp,
-          updatedAt: stamp,
-        };
+      if (templateId && !envelope.operationId)
+        throw new DomainError(
+          400,
+          "OPERATION_REQUIRED",
+          "템플릿 이슈 생성에는 operationId UUID가 필요합니다.",
+        );
+      const internal = this.get("projects", p.id),
+        stamp = now();
+      const issue: Issue = {
+        id: randomUUID(),
+        key: `${p.key}-${String(z.number().int().positive().parse(internal.nextIssue))}`,
+        ...data,
+        templateId,
+        templateVersion,
+        revision: 1,
+        createdAt: stamp,
+        updatedAt: stamp,
+      };
       this.insert("issues", { ...issue, labels: JSON.stringify(issue.labels) });
       this.db
         .prepare("UPDATE projects SET nextIssue=nextIssue+1 WHERE id=?")
         .run(p.id);
       this.activity(actor, issue.id, "created", "이슈 생성");
+      if (envelope.operationId)
+        this.context.insert("issue_creation_operations", {
+          actorId: actor.id,
+          operationId: envelope.operationId,
+          payload,
+          issueId: issue.id,
+        });
       return issue;
     });
   }
