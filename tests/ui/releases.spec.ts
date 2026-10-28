@@ -164,14 +164,15 @@ test("version roles, partial carryover, Markdown draft, dirty cancellation and e
     .getByRole("button", { name: "선택 이슈로 초안 생성", exact: true })
     .click();
   await generationConfirmation;
+  await expect(page.getByLabel("Markdown 변경로그")).toHaveValue(
+    new RegExp(origin),
+  );
+
   const generated = changelogSchema.parse(
     await (await request.get(`/api/versions/${version.id}/changelog`)).json(),
   );
   expect(generated.revision).toBe(1);
   expect(generated.selectedIssueIds).toEqual([a.id]);
-  await expect(page.getByLabel("Markdown 변경로그")).toHaveValue(
-    new RegExp(origin),
-  );
   await page
     .getByLabel("Markdown 변경로그")
     .fill("# 사용자가 편집한 출시 초안\n");
