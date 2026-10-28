@@ -18,6 +18,7 @@ import { Store } from "../server/domain.js";
 import { randomUUID } from "node:crypto";
 import { spawnSync, execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { gzipSync } from "node:zlib";
 
 // Docker is NOT executed. This fixture verifies shell orchestration and runs the exact
 // fixed restore command against a temporary directory, standing in for the data volume.
@@ -180,14 +181,32 @@ void test("restore requires confirmation and rejects traversal, links and missin
     );
     assert.equal(f.calls().length, 0);
     writeFileSync(join(f.dir, "source", "sticker.sqlite"), "not a DB");
-    execFileSync("tar", [
-      "-czf",
+    // A minimal POSIX ustar fixture avoids GNU-only --transform on macOS BSD tar.
+    const header = Buffer.alloc(512);
+    header.write("../sticker.sqlite", 0, "ascii");
+    header.write("0000600\0", 100, "ascii");
+    header.write("0000000\0", 108, "ascii");
+    header.write("0000000\0", 116, "ascii");
+    header.write("00000000010\0", 124, "ascii");
+    header.write("00000000000\0", 136, "ascii");
+    header.fill(32, 148, 156);
+    header.write("0", 156, "ascii");
+    header.write("ustar\0", 257, "ascii");
+    header.write("00", 263, "ascii");
+    const checksum = header.reduce((sum, byte) => sum + byte, 0);
+    header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, "ascii");
+    const body = Buffer.alloc(512);
+    body.write("not a DB", 0, "ascii");
+    writeFileSync(
       join(f.dir, "input.tar.gz"),
-      "--transform=s|sticker.sqlite|../sticker.sqlite|",
-      "-C",
-      join(f.dir, "source"),
-      ".",
-    ]);
+      gzipSync(Buffer.concat([header, body, Buffer.alloc(1024)])),
+    );
+    assert.match(
+      execFileSync("tar", ["-tzf", join(f.dir, "input.tar.gz")], {
+        encoding: "utf8",
+      }),
+      /\.\.\/sticker\.sqlite/,
+    );
     assert.equal(
       f.run("restore.sh", [join(f.dir, "input.tar.gz"), "--replace-data"])
         .status,
