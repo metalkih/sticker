@@ -400,3 +400,87 @@ void test("browser Back asks before leaving a dirty release draft; dismissal res
     await s.close();
   }
 });
+void test("generation dismiss preserves manual text without API writes; explicit acceptance generates a persisted linked draft", async () => {
+  const s = await setup(),
+    oldConfirm = dom.window.confirm;
+  let prompts = 0,
+    posts = 0;
+  try {
+    const issue = s.f.instance.store.updateIssue(sessionOwner, s.f.issue.id, {
+      revision: 1,
+      targetVersionId: s.version.id,
+    });
+    const connected = globalThis.fetch;
+    globalThis.fetch = (input, init = {}) => {
+      const path =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (init.method === "POST" && path.endsWith("/changelog/generate"))
+        posts++;
+      return connected(input, init);
+    };
+    const Editor = (
+      await import("../../client/features/releases/ChangelogEditor.js")
+    ).default;
+    render(
+      <Editor
+        versionId={s.version.id}
+        issues={[issue]}
+        onDirty={() => undefined}
+        onPending={() => undefined}
+      />,
+    );
+    await screen.findByLabelText("Markdown 변경로그");
+    await s.user.type(
+      screen.getByLabelText("Markdown 변경로그"),
+      "manual draft to keep",
+    );
+    await s.user.click(screen.getByLabelText(`${issue.key} · ${issue.title}`));
+    dom.window.confirm = () => {
+      prompts++;
+      return false;
+    };
+    await s.user.click(
+      screen.getByRole("button", { name: "선택 이슈로 초안 생성" }),
+    );
+    assert.equal(prompts, 1);
+    assert.equal(posts, 0);
+    assert.equal(
+      s.f.instance.store.releases.changelog(sessionOwner, s.version.id)
+        .revision,
+      0,
+    );
+    assert.equal(
+      screen.getByLabelText<HTMLTextAreaElement>("Markdown 변경로그").value,
+      "manual draft to keep",
+    );
+    dom.window.confirm = () => {
+      prompts++;
+      return true;
+    };
+    await s.user.click(
+      screen.getByRole("button", { name: "선택 이슈로 초안 생성" }),
+    );
+    await screen.findByText("저장된 초안 r1");
+    assert.equal(prompts, 2);
+    assert.equal(posts, 1);
+    const stored = s.f.instance.store.releases.changelog(
+      sessionOwner,
+      s.version.id,
+    );
+    assert.deepEqual(stored.selectedIssueIds, [issue.id]);
+    assert.ok(
+      stored.markdown.includes(`#project=${s.f.project.id}&issue=${issue.id}`),
+    );
+    assert.equal(
+      screen.getByLabelText<HTMLTextAreaElement>("Markdown 변경로그").value,
+      stored.markdown,
+    );
+  } finally {
+    dom.window.confirm = oldConfirm;
+    await s.close();
+  }
+});
