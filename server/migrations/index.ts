@@ -1,0 +1,36 @@
+import type { DatabaseSync } from "node:sqlite";
+import { initial } from "./001-initial.js";
+import { sessions } from "./002-sessions.js";
+export interface Migration {
+  version: number;
+  run: (db: DatabaseSync) => void;
+}
+export const migrations: readonly Migration[] = [
+  { version: 1, run: initial },
+  { version: 2, run: sessions },
+];
+/** One transaction for every pending migration; never mutate a future-version database. */
+export function migrate(
+  db: DatabaseSync,
+  steps: readonly Migration[] = migrations,
+): void {
+  const version = Number(db.prepare("PRAGMA user_version").get()?.user_version);
+  const latest = steps.at(-1)?.version ?? 0;
+  if (version > latest)
+    throw new Error("This database was created by a newer Sticker version.");
+  if (version === latest) return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const step of steps) {
+      if (step.version <= version) continue;
+      if (!Number.isSafeInteger(step.version) || step.version < 1)
+        throw new Error("Invalid migration version");
+      step.run(db);
+      db.exec(`PRAGMA user_version=${String(step.version)}`);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}

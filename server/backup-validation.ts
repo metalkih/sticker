@@ -3,80 +3,12 @@ import { lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import {
+  schemaManifests,
+  isSchemaVersion,
+  type SchemaVersion,
+} from "./schema-manifest.js";
 
-/** Keep synchronized with schema version 1 in db.ts. Never initialize/migrate a backup here. */
-const requiredColumns: Record<string, readonly string[]> = {
-  projects: [
-    "id",
-    "key",
-    "name",
-    "description",
-    "color",
-    "nextIssue",
-    "createdAt",
-    "updatedAt",
-  ],
-  versions: [
-    "id",
-    "projectId",
-    "name",
-    "description",
-    "state",
-    "dueDate",
-    "createdAt",
-    "updatedAt",
-  ],
-  issues: [
-    "id",
-    "projectId",
-    "key",
-    "title",
-    "description",
-    "status",
-    "priority",
-    "assignee",
-    "targetVersionId",
-    "foundVersionId",
-    "fixedVersionId",
-    "labels",
-    "revision",
-    "createdAt",
-    "updatedAt",
-  ],
-  comments: ["id", "issueId", "body", "authorId", "authorName", "createdAt"],
-  activity: [
-    "id",
-    "issueId",
-    "action",
-    "detail",
-    "authorId",
-    "authorName",
-    "createdAt",
-  ],
-  attachments: [
-    "id",
-    "issueId",
-    "kind",
-    "name",
-    "url",
-    "storageKey",
-    "mimeType",
-    "size",
-    "authorId",
-    "authorName",
-    "createdAt",
-  ],
-  agent_reports: [
-    "id",
-    "agentId",
-    "agentName",
-    "projectId",
-    "issueId",
-    "state",
-    "message",
-    "reportedAt",
-  ],
-};
 function requireRegularFile(path: string, label: string) {
   let stat;
   try {
@@ -91,7 +23,7 @@ function requireRegularFile(path: string, label: string) {
 
 /** Validate extracted bytes before restore replaces anything. This function only opens SQLite read-only. */
 export function validateBackup(stageDir: string): {
-  schemaVersion: 1;
+  schemaVersion: SchemaVersion;
   fileCount: number;
 } {
   const root = resolve(stageDir),
@@ -108,9 +40,9 @@ export function validateBackup(stageDir: string): {
   try {
     // Do not trust user_version alone: unrelated SQLite databases may also use 1.
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
-    if (version !== 1)
+    if (!isSchemaVersion(version))
       throw new Error(
-        `Unsupported Sticker schema version: ${String(version)}. Expected 1.`,
+        `Unsupported Sticker schema version: ${String(version)}. Expected 1 or 2.`,
       );
     const tables = new Set(
       db
@@ -118,7 +50,7 @@ export function validateBackup(stageDir: string): {
         .all()
         .map((row) => String(row.name)),
     );
-    for (const [table, columns] of Object.entries(requiredColumns)) {
+    for (const [table, columns] of Object.entries(schemaManifests[version])) {
       if (!tables.has(table))
         throw new Error(
           `Invalid Sticker schema: required table ${table} is missing.`,
@@ -174,7 +106,7 @@ export function validateBackup(stageDir: string): {
       )
         throw new Error("Attachment storageKey is not a valid UUID.");
       const size = Number(row.size);
-      if (!Number.isSafeInteger(size) || size < 0)
+      if (!Number.isSafeInteger(size) || size < 0 || size > 20 * 1024 * 1024)
         throw new Error("Attachment recorded size is invalid.");
       const attachment = requireRegularFile(
         join(root, "uploads", row.storageKey),
@@ -183,7 +115,7 @@ export function validateBackup(stageDir: string): {
       if (attachment.size !== size)
         throw new Error(`Attachment size mismatch for ${row.storageKey}.`);
     }
-    return { schemaVersion: 1, fileCount: attachments.length };
+    return { schemaVersion: version, fileCount: attachments.length };
   } finally {
     db.close();
   }

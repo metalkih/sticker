@@ -25,24 +25,9 @@ import {
   versionStateNames,
   dateText,
 } from "./format.js";
-type Route = { section: string; project: string; issue: string };
-const readRoute = (): Route => {
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  return {
-    section: params.get("section") || "issues",
-    project: params.get("project") || "",
-    issue: params.get("issue") || "",
-  };
-};
-function navigate(next: Partial<Route>) {
-  const old = readRoute();
-  const params = new URLSearchParams();
-  Object.entries({ ...old, ...next }).forEach(([key, value]) => {
-    if (value && !(key === "section" && value === "issues"))
-      params.set(key, value);
-  });
-  window.location.hash = params.toString();
-}
+import { readRoute, navigate, type Route } from "./router.js";
+import AgentSessions from "./features/sessions/AgentSessions.js";
+import OwnerInbox from "./features/sessions/OwnerInbox.js";
 export default function App() {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loading, setLoading] = useState(true);
@@ -241,7 +226,9 @@ export default function App() {
         ? "버전과 릴리스"
         : route.section === "agents"
           ? "에이전트 기록"
-          : project?.name || "내 작업 공간";
+          : route.section === "inbox"
+            ? "사용자 확인함"
+            : project?.name || "내 작업 공간";
   return (
     <div className="app-shell">
       <aside
@@ -249,6 +236,8 @@ export default function App() {
         inert={
           !!(
             route.issue ||
+            route.session ||
+            route.request ||
             projectEditor ||
             versionEditor ||
             issueEditor ||
@@ -308,6 +297,15 @@ export default function App() {
             <Icon name="agent" />
             <span>에이전트 기록</span>
           </button>
+          <button
+            className={route.section === "inbox" ? "active" : ""}
+            onClick={() => {
+              navigate({ section: "inbox", issue: "" });
+            }}
+          >
+            <Icon name="message" />
+            <span>사용자 확인함</span>
+          </button>
         </nav>
         <div className="project-nav-header">
           <span className="nav-label">MY PROJECTS</span>
@@ -346,24 +344,17 @@ export default function App() {
           )}
         </nav>
         <div className="sidebar-bottom">
-          <div className="mcp-note">
-            <span className="mcp-symbol">↗</span>
-            <strong>같은 맥락, 함께 만드는 일.</strong>
-            <p>
-              MCP로 코딩 에이전트와
-              <br />
-              이슈와 자료를 연결하세요.
-            </p>
-            <span className="mcp-tag">
-              <span /> MCP READY
-            </span>
-          </div>
-          <button className="account-button" onClick={() => void logout()}>
+          <button
+            className="account-button"
+            aria-label="로그아웃"
+            onClick={() => void logout()}
+          >
             <span className="avatar small">나</span>
             <span>
               {data.actor.name}
               <small>소유자 · 비공개</small>
             </span>
+            <span className="account-exit">로그아웃</span>
             <Icon name="logout" size={17} />
           </button>
         </div>
@@ -373,6 +364,8 @@ export default function App() {
         inert={
           !!(
             route.issue ||
+            route.session ||
+            route.request ||
             projectEditor ||
             versionEditor ||
             issueEditor ||
@@ -400,26 +393,17 @@ export default function App() {
             </button>
             <span className="avatar small">나</span>
             <button
-              className="icon-button mobile-logout"
+              className="text-button mobile-logout"
               aria-label="로그아웃"
               onClick={() => void logout()}
             >
-              <Icon name="logout" size={16} />
+              로그아웃
             </button>
           </div>
         </header>
         <main>
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
-                {route.section === "issues"
-                  ? "A LITTLE STICKER. A CLEARER DAY."
-                  : route.section === "projects"
-                    ? "SMALL IDEAS, BIG PICTURE."
-                    : route.section === "versions"
-                      ? "ONE RELEASE AT A TIME."
-                      : "CONTEXT, NOT GUESSWORK."}
-              </div>
               <h1>
                 {heading}
                 {route.section === "issues" && (
@@ -428,16 +412,9 @@ export default function App() {
                   </span>
                 )}
               </h1>
-              <p>
-                {route.section === "issues"
-                  ? project?.description ||
-                    "작은 생각부터 다음 릴리스까지. 해야 할 일을 한눈에 붙여 두세요."
-                  : route.section === "projects"
-                    ? "각자의 색으로, 하나의 목표를 향해."
-                    : route.section === "versions"
-                      ? "목표 · 발견 · 수정 버전을 분리해 변경의 맥락을 남기세요."
-                      : "마지막으로 전달된 상태와 근거를 확인하세요. 실행을 추측하지 않아요."}
-              </p>
+              {route.section === "issues" && project?.description && (
+                <p>{project.description}</p>
+              )}
             </div>
             <div className="heading-actions">
               {project && route.section === "issues" && (
@@ -479,7 +456,7 @@ export default function App() {
               <div className="summary-strip">
                 <div className="summary-card yellow">
                   <div>
-                    <span>지금 움직이는 일</span>
+                    <span>미완료 이슈</span>
                     <strong>
                       {counts.active}
                       <small>개의 스티커</small>
@@ -508,7 +485,7 @@ export default function App() {
                     <span>승인을 기다리는 일</span>
                     <strong>
                       {counts.waiting}
-                      <small>자동 실행하지 않아요</small>
+                      <small>승인 대기</small>
                     </strong>
                   </div>
                   <span className="summary-doodle" aria-hidden="true">
@@ -642,8 +619,7 @@ export default function App() {
                 </div>
                 {!data.projects.length ? (
                   <Empty
-                    title="첫 번째 스티커를 붙여 볼까요?"
-                    description="프로젝트를 만들고, 해야 할 일과 참고 자료를 한곳에 모아 보세요."
+                    title="프로젝트 없음"
                     action={
                       <button
                         className="button primary"
@@ -657,8 +633,7 @@ export default function App() {
                   />
                 ) : !projectIssues.length ? (
                   <Empty
-                    title="새로운 가능성을 위한 빈자리"
-                    description="첫 이슈를 붙이면 작업의 흐름이 시작돼요."
+                    title="이슈 없음"
                     action={
                       <button className="button primary" onClick={newIssue}>
                         <Icon name="plus" size={16} />첫 이슈 만들기
@@ -666,10 +641,7 @@ export default function App() {
                     }
                   />
                 ) : !filtered.length ? (
-                  <Empty
-                    title="맞는 스티커가 없어요"
-                    description="검색어 또는 필터를 바꿔 다시 찾아 보세요."
-                  />
+                  <Empty title="검색 결과 없음" />
                 ) : mode === "board" ? (
                   <div className="board">
                     {STATUSES.filter((s) => !status || s === status).map(
@@ -757,13 +729,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="workspace-footnote">
-                <span>
-                  <Icon name="lock" size={12} /> 나와 연결한 에이전트만 보는
-                  공간
-                </span>
-                <span>작게 붙이고, 선명하게 끝내요.</span>
-              </div>
             </>
           )}
           {route.section === "projects" && (
@@ -815,7 +780,7 @@ export default function App() {
                       }}
                     >
                       <h2>{p.name}</h2>
-                      <p>{p.description || "아직 설명이 없는 프로젝트예요."}</p>
+                      <p>{p.description || "설명 없음"}</p>
                     </button>
                     <div className="project-progress">
                       <div>
@@ -863,7 +828,6 @@ export default function App() {
                   <Icon name="plus" size={26} />
                 </span>
                 <strong>새 프로젝트 붙이기</strong>
-                <small>새로운 아이디어를 위한 자리</small>
               </button>
             </div>
           )}
@@ -887,7 +851,6 @@ export default function App() {
                     ))}
                   </select>
                 </label>
-                <p>버전을 삭제하면 이슈의 해당 버전 연결이 해제돼요.</p>
               </div>
               {currentVersions.length ? (
                 <div className="versions-list">
@@ -908,10 +871,7 @@ export default function App() {
                               {versionStateNames[v.state]}
                             </span>
                           </div>
-                          <p>
-                            {v.description ||
-                              "버전 설명을 추가해 릴리스 범위를 정해 보세요."}
-                          </p>
+                          <p>{v.description || "설명 없음"}</p>
                           <div className="version-meta">
                             <span>
                               <i
@@ -954,8 +914,7 @@ export default function App() {
                 </div>
               ) : (
                 <Empty
-                  title="다음 릴리스를 위한 한 장"
-                  description="버전을 만들고 목표 이슈를 연결해 보세요. 발견한 버전과 수정한 버전도 별도로 남길 수 있어요."
+                  title="버전 없음"
                   action={
                     <button className="button primary" onClick={newVersion}>
                       첫 버전 만들기
@@ -966,92 +925,21 @@ export default function App() {
             </>
           )}
           {route.section === "agents" && (
-            <>
-              <div className="agent-disclaimer">
-                <Icon name="agent" size={28} />
-                <div>
-                  <strong>상태 보고는 실행 증명이 아니에요.</strong>
-                  <p>
-                    에이전트가 MCP로 마지막 전달한 내용이에요. 5분이 지나면
-                    오래된 보고로 표시해요. 스티커는 에이전트나 셸을 실행하지
-                    않아요.
-                  </p>
-                </div>
-              </div>
-              {data.reports.filter(
-                (r) => !route.project || r.projectId === route.project,
-              ).length ? (
-                <div className="agent-grid">
-                  {data.reports
-                    .filter(
-                      (r) => !route.project || r.projectId === route.project,
-                    )
-                    .map((r) => {
-                      const stale =
-                        r.stale ||
-                        reportTime - new Date(r.reportedAt).getTime() > 300_000;
-                      return (
-                        <article className="agent-card" key={r.id}>
-                          <header>
-                            <span className="agent-avatar">
-                              <Icon name="agent" size={22} />
-                            </span>
-                            <div>
-                              <h2>{r.agentName}</h2>
-                              <span>
-                                {
-                                  data.projects.find(
-                                    (p) => p.id === r.projectId,
-                                  )?.name
-                                }
-                              </span>
-                            </div>
-                            <span
-                              className={`report-status ${stale ? "stale" : ""}`}
-                            >
-                              {stale ? "오래된 보고" : "최근 자기 보고"}
-                            </span>
-                          </header>
-                          <p>{r.message || "상세 메시지가 없어요."}</p>
-                          <div className="agent-state">
-                            보고한 상태:{" "}
-                            <strong>
-                              {
-                                {
-                                  idle: "대기",
-                                  working: "작업 중이라고 보고",
-                                  blocked: "막힘",
-                                  done: "완료",
-                                }[r.state]
-                              }
-                            </strong>
-                          </div>
-                          <footer>
-                            <time dateTime={r.reportedAt}>
-                              {dateText(r.reportedAt, true)}
-                            </time>
-                            {r.issueId && (
-                              <button
-                                className="text-button"
-                                onClick={() => {
-                                  if (r.issueId) navigate({ issue: r.issueId });
-                                }}
-                              >
-                                연결 이슈 <Icon name="arrow" size={14} />
-                              </button>
-                            )}
-                          </footer>
-                        </article>
-                      );
-                    })}
-                </div>
-              ) : (
-                <Empty
-                  title="아직 전달된 상태 보고가 없어요"
-                  description="MCP를 연결한 에이전트가 상태를 보고하면 이곳에 기록돼요. 연결 방법은 설치 문서의 MCP 항목을 확인하세요."
-                />
-              )}
-            </>
+            <AgentSessions
+              key={route.project}
+              data={data}
+              projectId={route.project}
+              sessionId={route.session}
+              observedAt={reportTime}
+            />
+          )}
+          {route.section === "inbox" && (
+            <OwnerInbox
+              key={route.project}
+              data={data}
+              projectId={route.project}
+              requestId={route.request}
+            />
           )}
         </main>
       </div>
@@ -1180,11 +1068,7 @@ function Login({
             <br />
             일을 움직여요.
           </h1>
-          <p>
-            프로젝트, 이슈, 다음 버전까지.
-            <br />
-            나와 코딩 에이전트를 위한 작은 작업 공간.
-          </p>
+
           <div className="login-stickers" aria-hidden="true">
             <div className="login-sticker green">
               <span>IDEA → DONE</span>
@@ -1212,7 +1096,6 @@ function Login({
             <Icon name="lock" size={25} />
           </span>
           <h2>나의 작업 공간으로</h2>
-          <p>설정한 소유자 비밀번호로 들어오세요.</p>
           <form
             onSubmit={(e) => {
               void (async () => {
@@ -1255,13 +1138,8 @@ function Login({
           </form>
           <div className="login-security">
             <Icon name="lock" size={14} />
-            <span>비공개 기본 설정 · 안전한 로컬 저장</span>
+            <span>비공개 · 소유자 인증</span>
           </div>
-          <p className="login-setup">
-            처음 설치하셨나요?
-            <br />
-            설치 문서에서 소유자 비밀번호를 먼저 설정해 주세요.
-          </p>
         </section>
       </main>
       <footer>STICKER — FOR YOUR NEXT LITTLE BIG THING.</footer>

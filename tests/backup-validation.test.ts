@@ -112,7 +112,7 @@ void test("validator rejects unrelated SQLite even if it claims supported user_v
 void test("validator rejects future Sticker schema versions", () => {
   const f = fixture();
   try {
-    changeDb(f.dbPath, "PRAGMA user_version=2;");
+    changeDb(f.dbPath, "PRAGMA user_version=999;");
     rejection(f.dir, /version/i);
   } finally {
     f.close();
@@ -175,6 +175,24 @@ void test("validator rejects a symlink database or uploads directory", () => {
     rmSync(join(f.dir, "uploads"), { recursive: true });
     symlinkSync(tmpdir(), join(f.dir, "uploads"));
     rejection(f.dir, /directory|link/i);
+  } finally {
+    f.close();
+  }
+});
+void test("v2 validator requires session columns without migrating or mutating a damaged backup", () => {
+  const f = fixture();
+  try {
+    changeDb(f.dbPath, "ALTER TABLE session_events DROP COLUMN message;");
+    rejection(f.dir, /column|schema/i);
+  } finally {
+    f.close();
+  }
+});
+void test("validator rejects oversized recorded attachments before accepting their bytes", () => {
+  const f = fixture();
+  try {
+    changeDb(f.dbPath, "UPDATE attachments SET size=20971521;");
+    rejection(f.dir, /size.*invalid/i);
   } finally {
     f.close();
   }

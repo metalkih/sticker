@@ -1,6 +1,21 @@
 import { test, expect } from "@playwright/test";
 const password =
   process.env.STICKER_TEST_PASSWORD || "ephemeral-sticker-test-password";
+async function openProjectEditor(page: import("@playwright/test").Page) {
+  await page
+    .getByRole("navigation", { name: "작업 공간 메뉴" })
+    .getByRole("button", { name: "프로젝트", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "프로젝트", exact: true, level: 1 }),
+  ).toBeVisible();
+  const trigger = page
+    .getByRole("main")
+    .getByRole("button", { name: "새 프로젝트", exact: true });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  return trigger;
+}
 test("owner can build a project, track an issue, attach context and retain it after refresh", async ({
   page,
 }) => {
@@ -13,10 +28,7 @@ test("owner can build a project, track an issue, attach context and retain it af
   await expect(
     page.getByRole("heading", { name: "내 작업 공간" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "새 프로젝트", exact: true })
-    .first()
-    .click();
+  await openProjectEditor(page);
   const key = `T${Date.now().toString().slice(-7)}`;
   await page.getByLabel("프로젝트 이름").fill("스티커 테스트");
   await page.getByLabel("프로젝트 키").fill(key);
@@ -98,11 +110,9 @@ test("login errors are visible and dialogs can be dismissed with Escape", async 
   await expect(
     page.getByRole("heading", { name: "내 작업 공간" }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "새 프로젝트", exact: true })
-    .first()
-    .click();
+  const trigger = await openProjectEditor(page);
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });

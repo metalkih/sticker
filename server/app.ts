@@ -5,6 +5,7 @@ import { resolve, join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { AuthManager, type AgentConfig } from "./auth.js";
 import { Store, DomainError } from "./domain.js";
+import { registerSessionRoutes } from "./routes/sessions.js";
 import type { Actor } from "./types.js";
 export interface AppConfig {
   dataDir: string;
@@ -131,6 +132,7 @@ export function createApp(config: AppConfig) {
       .status(204)
       .end();
   });
+  registerSessionRoutes(app, store.sessions);
   app.get("/api/bootstrap", (req, res) =>
     res.json(store.bootstrap(actor(req))),
   );

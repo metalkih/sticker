@@ -64,9 +64,6 @@ export function ProjectEditor({
         }}
         className="editor-form"
       >
-        <p className="form-intro">
-          흩어진 아이디어를 하나의 작업 공간에 붙여 보세요.
-        </p>
         <Field label="프로젝트 이름">
           <input
             required
@@ -75,7 +72,7 @@ export function ProjectEditor({
             onChange={(e) => {
               setName(e.target.value);
             }}
-            placeholder="어떤 프로젝트인가요?"
+            placeholder="프로젝트 이름"
           />
         </Field>
         <Field label="프로젝트 키">
@@ -89,7 +86,7 @@ export function ProjectEditor({
             }}
             placeholder="예: STK"
           />
-          <small>영문 대문자로 시작하는 2–8자. 이슈 번호에 사용해요.</small>
+          <small>A–Z로 시작 · A–Z/0–9 · 2–8자</small>
         </Field>
         <Field label="프로젝트 설명">
           <textarea
@@ -99,7 +96,7 @@ export function ProjectEditor({
             }}
             rows={3}
             maxLength={10000}
-            placeholder="목표와 맥락을 짧게 남겨 주세요."
+            placeholder="목표 · 범위"
           />
         </Field>
         <fieldset className="color-field">
@@ -379,7 +376,7 @@ export function IssueEditor({
             onChange={(e) => {
               setTitle(e.target.value);
             }}
-            placeholder="무엇을 해결할까요?"
+            placeholder="이슈 제목"
           />
         </Field>
         <Field label="설명">
@@ -390,7 +387,7 @@ export function IssueEditor({
             onChange={(e) => {
               setDescription(e.target.value);
             }}
-            placeholder="해야 할 일, 성공 기준, 참고할 맥락을 남겨 주세요."
+            placeholder="작업 내용 · 완료 기준"
           />
         </Field>
         <div className="form-grid">
@@ -452,17 +449,6 @@ export function IssueEditor({
             />
           </Field>
         </div>
-        {status === "waiting" && (
-          <p className="inline-note">
-            승인 대기는 기록용 상태예요. 자동 실행하거나 에이전트를 시작하지
-            않아요.
-          </p>
-        )}
-        {status === "done" && (
-          <p className="inline-note">
-            구현 완료 후 소유자가 검토하고 ‘소유자 종료’로 마무리하세요.
-          </p>
-        )}
         <div className="form-grid three">
           <Field label="목표 버전">{versionSelect(target, setTarget)}</Field>
           <Field label="발견 버전">{versionSelect(found, setFound)}</Field>
@@ -481,10 +467,7 @@ export function IssueEditor({
         <ErrorNotice message={error} />
         {conflict && issue && (
           <div className="conflict-review">
-            <p>
-              입력한 초안은 유지돼요. 서버의 최신 변경을 확인하고, 검토를 마친
-              뒤 직접 다시 저장해 주세요.
-            </p>
+            <p role="status">충돌 · 초안 보존됨</p>
             {!latest ? (
               <button
                 type="button"
@@ -539,10 +522,7 @@ export function IssueEditor({
                     2,
                   )}
                 </pre>
-                <p>
-                  아래 버튼은 아직 저장하지 않아요. 초안으로 덮어쓸 내용을
-                  확인한 후 ‘변경 저장’을 눌러 주세요.
-                </p>
+                <p>초안 미저장</p>
                 <button
                   type="button"
                   className="button secondary"
