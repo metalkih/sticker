@@ -25,7 +25,7 @@ function setup() {
   const dir = mkdtempSync(join(tmpdir(), "sticker-install-"));
   for (const name of ["scripts", "bin", "data", "source"])
     mkdirSync(join(dir, name));
-  for (const name of ["backup.sh", "restore.sh"])
+  for (const name of ["backup.sh", "restore.sh", "host-tools.sh"])
     copyFileSync(
       join(process.cwd(), "scripts", name),
       join(dir, "scripts", name),

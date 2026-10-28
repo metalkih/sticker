@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Restore only an archive made by backup.sh. Service remains stopped on any failure.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+script_dir=${BASH_SOURCE[0]%/*}
+[[ "$script_dir" != "${BASH_SOURCE[0]}" ]] || script_dir=.
+source "$script_dir/host-tools.sh"
+sticker_require_commands restore docker tar grep awk
+cd "$script_dir/.."
 if [[ $# -ne 2 || "$2" != "--replace-data" ]]; then
   echo "Usage: bash scripts/restore.sh <trusted-backup.tar.gz> --replace-data" >&2
   echo "This replaces every issue and attachment. Back up existing data first." >&2

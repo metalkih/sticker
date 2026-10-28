@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Offline, consistent backup of the named data volume. No credentials are archived.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+script_dir=${BASH_SOURCE[0]%/*}
+[[ "$script_dir" != "${BASH_SOURCE[0]}" ]] || script_dir=.
+source "$script_dir/host-tools.sh"
+sticker_require_commands backup docker dirname tar date mkdir mv rm
+cd "$script_dir/.."
 archive=${1:-"backups/sticker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"}
 if [[ -e "$archive" || -e "$archive.tmp" ]]; then echo "Refusing to overwrite $archive" >&2; exit 1; fi
 mkdir -p "$(dirname "$archive")"

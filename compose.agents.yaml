@@ -1,0 +1,13 @@
+# Optional, explicit owner-managed agent grant. Never required for core use.
+# docker compose -f compose.yaml -f compose.agents.yaml up -d
+services:
+  sticker:
+    environment:
+      AGENT_CONFIG_PATH: /app/config/agents.json
+    volumes:
+      - type: bind
+        source: ${STICKER_AGENT_CONFIG:-./config/agents.json}
+        target: /app/config/agents.json
+        read_only: true
+        bind:
+          create_host_path: false
