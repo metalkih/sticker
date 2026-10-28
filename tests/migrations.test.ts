@@ -88,7 +88,7 @@ void test("true v1 backup validates read-only and migrates issues, comments, fil
   } finally {
     store.close();
   }
-  assert.equal(validateBackup(dir).schemaVersion, 2);
+  assert.equal(validateBackup(dir).schemaVersion, 3);
   assert.deepEqual(
     readFileSync(join(dir, "uploads", opaqueKey)),
     Buffer.from([0, 255, 0, 128]),

@@ -71,7 +71,7 @@ const v1: Record<string, readonly string[]> = {
   ],
 };
 
-export const schemaManifests = {
+const baseManifests = {
   1: v1,
   2: {
     ...v1,
@@ -124,7 +124,22 @@ export const schemaManifests = {
     ],
   },
 } as const;
+export const schemaManifests = {
+  ...baseManifests,
+  3: {
+    ...baseManifests[2],
+    issue_relations: [
+      "id",
+      "projectId",
+      "kind",
+      "sourceIssueId",
+      "targetIssueId",
+      "createdBy",
+      "createdAt",
+    ],
+  },
+} as const;
 export type SchemaVersion = keyof typeof schemaManifests;
 export function isSchemaVersion(value: unknown): value is SchemaVersion {
-  return value === 1 || value === 2;
+  return value === 1 || value === 2 || value === 3;
 }

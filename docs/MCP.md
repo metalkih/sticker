@@ -120,3 +120,7 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 `sticker_list_sessions`, `sticker_get_session`, `sticker_report_session_event`, `sticker_list_pending_requests`는 프로젝트 범위와 현재 인증 에이전트 ID를 서버에서 검증합니다. 세션 이벤트는 `eventId`로 재전송 중복을 제거하고, 내용 불일치는 409로 거부합니다. 입력 요청에는 `kind: request`, `requestKind: input|review`를 사용하세요. 에이전트 도구에는 소유자 응답·종결·승인·재개 기능이 없습니다.
 
 예전 상태 보고 도구도 유지하지만 eventId 없는 호출의 재시도 중복 제거는 보장하지 않습니다. 새 호출의 필드·권한·마이그레이션 및 UI 동작은 [에이전트 세션과 사용자 확인함](AGENT-SESSIONS.md)을 참고하세요.
+
+### 이슈 관계
+
+`sticker_get_issue_relations`, `sticker_add_issue_relation`, `sticker_remove_issue_relation`은 같은 프로젝트의 부모·관련·차단 관계를 처리합니다. 변경에는 양끝 이슈의 현재 revision이 필요합니다. 차단 해소는 자동 실행·승인·종결이 아닙니다. 요청 형태와 상태 의미는 [이슈 관계](ISSUE-RELATIONS.md)를 참고하세요.

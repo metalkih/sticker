@@ -26,6 +26,7 @@ import {
 export { DomainError } from "./domain-error.js";
 import { DomainError } from "./domain-error.js";
 import { StoreContext } from "./store-context.js";
+import { RelationService } from "./features/relations.js";
 import { SessionService } from "./features/sessions.js";
 const id = z.string().min(1).max(128);
 const name = z.string().trim().min(1).max(160);
@@ -189,12 +190,14 @@ function reportRow(row: Row): AgentReport {
 export class Store {
   private context: StoreContext;
   readonly sessions: SessionService;
+  readonly relations: RelationService;
   private get db() {
     return this.context.db;
   }
   constructor(dataDir: string, clock: () => number = Date.now) {
     this.context = new StoreContext(dataDir, clock);
     this.sessions = new SessionService(this.context);
+    this.relations = new RelationService(this.context);
   }
   close() {
     this.context.db.close();
@@ -521,6 +524,7 @@ export class Store {
     this.owner(actor);
     this.tx(() => {
       this.issue(actor, issueId);
+      this.relations.beforeIssueDelete(actor, issueId);
       this.db.prepare("DELETE FROM issues WHERE id=?").run(issueId);
     });
   }
