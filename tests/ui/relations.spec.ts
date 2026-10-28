@@ -41,10 +41,11 @@ test("relation picker, board blocker links, stale failure and desktop/mobile key
   );
   await page.goto(`/#section=issues&project=${project.id}&issue=${b.id}`);
   await page.getByRole("button", { name: "관계 추가", exact: true }).click();
-  await page.getByLabel("관계 종류").selectOption("blockedBy");
-  await page.getByLabel("이슈 검색").fill(a.key);
-  await page.getByRole("button", { name: new RegExp(`${a.key} ·`) }).click();
-  await page.getByRole("button", { name: "연결하기", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "관계 추가", exact: true });
+  await picker.getByLabel("관계 종류").selectOption("blockedBy");
+  await picker.getByLabel("이슈 검색").fill(a.key);
+  await picker.getByRole("button", { name: new RegExp(`${a.key} ·`) }).click();
+  await picker.getByRole("button", { name: "연결하기", exact: true }).click();
   await expect(
     page.getByText("차단됨 · 소유자 종결 전", { exact: true }),
   ).toBeVisible();
