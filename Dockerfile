@@ -17,5 +17,5 @@ COPY --from=build --chown=node:node /app/dist ./dist
 RUN mkdir -p /app/data /app/config && chown -R node:node /app/data /app/config
 USER node
 EXPOSE 8787
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "dist/server/index.js"]

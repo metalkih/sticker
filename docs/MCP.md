@@ -12,7 +12,10 @@ SDK API와 STDIO 방식은 [공식 v1 서버 문서](https://ts.sdk.modelcontext
 ```bash
 read -rsp 'Sticker agent token: ' STICKER_AGENT_TOKEN; echo
 export STICKER_AGENT_TOKEN
-printf %s "$STICKER_AGENT_TOKEN" | openssl dgst -sha256
+# 이미 빌드한 Docker 이미지의 Node로 해시합니다. 호스트 OpenSSL/Node는 불필요합니다.
+docker compose run --rm --no-deps -T -e STICKER_AGENT_TOKEN --entrypoint node sticker \
+  -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.env.STICKER_AGENT_TOKEN).digest("hex")+"\n")'
+mkdir -p config
 ```
 
 3. 출력된 64자리 해시만 `config/agents.json`에 기록합니다. 다음은 **치환이 필요한 템플릿**입니다. 원문 토큰은 서버 설정 파일에 저장하지 않습니다.
@@ -41,42 +44,50 @@ console.table(
 );
 ```
 
-4. `.env`의 `AGENT_CONFIG_PATH=/app/config/agents.json`을 설정하고 `docker compose up -d --force-recreate`로 재시작합니다. 컨테이너 UID 1000이 파일을 읽을 수 있어야 합니다. 해시 파일에도 접근 범위 등 비공개 메타데이터가 있으므로 필요한 사용자에게만 권한을 주세요.
-5. 토큰을 폐기하려면 해당 항목 삭제 후 재시작합니다. 단순 파일 수정만으로 이미 실행 중인 서버가 바뀌지는 않습니다.
+4. JSON 파일을 만든 다음 `.env`에 아래 선택적 설정을 추가하고 `docker compose up -d --force-recreate --wait sticker`로 재생성합니다. `COMPOSE_PATH_SEPARATOR`는 Windows/macOS/Linux에서 같은 파일 선택 표기를 사용하게 합니다. `AGENT_CONFIG_PATH`는 오버라이드가 컨테이너 경로로 지정하므로 기본 `.env` 값은 비워 두어도 됩니다.
 
-## 2. 로컬 Node STDIO로 연결
-
-같은 컴퓨터에서 Node.js 24와 `npm ci && npm run build`를 수행한 뒤, Codex가 실행되는 환경에 `STICKER_AGENT_TOKEN`을 안전하게 전달하세요. 설정에 토큰 원문을 넣지 않고 환경 변수를 전달하는 예시입니다.
-
-```toml
-[mcp_servers.sticker]
-command = "node"
-args = ["/절대/경로/sticker/dist/server/mcp.js"]
-env_vars = ["STICKER_AGENT_TOKEN"]
-startup_timeout_sec = 10
-tool_timeout_sec = 30
-
-[mcp_servers.sticker.env]
-STICKER_API_URL = "http://127.0.0.1:8787"
+```dotenv
+COMPOSE_PATH_SEPARATOR=:
+COMPOSE_FILE=compose.yaml:compose.agents.yaml
+STICKER_AGENT_CONFIG=./config/agents.json
 ```
 
-이 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프로젝트의 `.codex/config.toml`에 추가합니다. 앱에서 실행하는 Codex의 환경 변수 전달 방식은 해당 실행 환경을 확인하세요. `codex mcp list` 또는 TUI의 `/mcp`로 연결을 확인합니다. ChatGPT 웹은 로컬 Codex 설정을 자동으로 읽지 않습니다.
+`compose.agents.yaml`만 운영자 파일을 읽기 전용으로 마운트합니다. 파일이 없으면 호스트 디렉터리를 자동 생성하지 않고 실패합니다. 컨테이너 UID 1000이 파일을 읽을 수 있어야 합니다. 해시 파일에도 접근 범위 등 비공개 메타데이터가 있으므로 필요한 사용자에게만 권한을 주세요. 기존 설치에서 `AGENT_CONFIG_PATH`만 설정했다면 이번 파일 선택 설정도 적용하세요. 이전 JSON/볼륨을 삭제하거나 에이전트 설정을 조용히 비우지 마세요. 5. 토큰을 폐기하려면 해당 항목 삭제 후 재시작합니다. 단순 파일 수정만으로 이미 실행 중인 서버가 바뀌지는 않습니다.
 
-## 3. 호스트 Node 없이 Docker로 STDIO 실행
+## 2. 호스트 Node/Python 없이 Docker STDIO로 연결
 
-실행 중인 동일 컨테이너 안에서 MCP 어댑터를 띄울 수 있습니다. `cwd`는 실제 설치 폴더로 바꿉니다. `-T`는 프로토콜을 깨는 TTY를 끕니다. 토큰은 클라이언트 프로세스 환경에서 Docker exec로 전달하고 서버의 기본 환경에는 저장하지 않습니다.
+먼저 위의 설정으로 웹 서버를 시작하세요. 어댑터는 별도의 일회성 컨테이너에서 실행되고 HTTP 서버의 네트워크를 공유하므로, API의 loopback-only HTTP 보안 규칙을 완화하지 않습니다. 외부 HTTP MCP 포트, 호스트 네트워크나 Docker 소켓 마운트는 없습니다.
+
+```bash
+# 토큰은 현재 셸에만 안전하게 전달합니다. 인자/설정 파일에 원문을 쓰지 않습니다.
+docker compose run --rm --no-deps -T -e STICKER_AGENT_TOKEN mcp
+# Bash가 있으면 같은 동작의 토큰 검증 래퍼:
+bash scripts/mcp.sh
+```
+
+`-T`는 프로토콜을 깨는 TTY를 끄고, `--rm`은 종료 후 어댑터 컨테이너를 지웁니다. `--no-deps` 때문에 서버를 임의로 시작하지 않습니다. 서버가 중지되어 있으면 먼저 시작해야 합니다. 기본 `docker compose up`은 `tools` 프로필의 MCP 어댑터를 시작하지 않습니다. MCP 클라이언트가 프로세스의 STDIN/STDOUT을 소유해야 하므로 별도의 터미널에서 백그라운드로 띄우지 마세요.
+
+Codex 설정 예시입니다. `cwd`는 설치한 **소스 루트**로 사용자가 선택합니다. `.`은 클라이언트의 작업 디렉터리가 이미 소스 루트일 때만 맞습니다. 특정 개인 폴더를 요구하지 않습니다. 토큰 원문을 넣지 말고 클라이언트 환경에서 전달하세요.
 
 ```toml
 [mcp_servers.sticker]
 command = "docker"
-args = ["compose", "exec", "-T", "-e", "STICKER_AGENT_TOKEN", "-e", "STICKER_API_URL=http://127.0.0.1:8787", "sticker", "node", "dist/server/mcp.js"]
-cwd = "/절대/경로/sticker"
+args = ["compose", "run", "--rm", "--no-deps", "-T", "-e", "STICKER_AGENT_TOKEN", "mcp"]
+cwd = "."
 env_vars = ["STICKER_AGENT_TOKEN"]
 startup_timeout_sec = 15
 tool_timeout_sec = 30
 ```
 
-Docker 접근 권한은 호스트에 강력한 권한을 줄 수 있습니다. 이미 Docker 사용이 허용된 개인 개발 환경에서만 이 방식을 사용하세요. 단순 읽기 토큰을 쓴다고 Docker 자체 권한까지 제한되는 것은 아닙니다.
+기존 `docker compose exec -T -e STICKER_AGENT_TOKEN -e STICKER_API_URL=http://127.0.0.1:8787 sticker node dist/server/mcp.js` 방식도 계속 사용할 수 있습니다. 이 방식도 호스트 Node는 필요하지 않지만, 웹 서버 컨테이너 내부에 어댑터 프로세스를 실행합니다.
+
+Docker 접근 권한은 호스트에 강력한 권한을 줄 수 있습니다. 이미 Docker 사용이 허용된 환경에서만 사용하세요. 단순 읽기 토큰을 쓴다고 Docker 자체 권한까지 제한되는 것은 아닙니다.
+
+## 3. 선택: 호스트 Node STDIO
+
+Docker 대신 직접 실행하고 싶을 때만 Node.js 24 이상과 `npm ci && npm run build`가 필요합니다. 소스 루트에서 `STICKER_API_URL=http://127.0.0.1:8787`과 `STICKER_AGENT_TOKEN`을 전달해 `node dist/server/mcp.js`를 실행합니다. 기본 웹 앱이나 위의 Docker 방식에는 이 과정이 필요하지 않습니다.
+
+Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프로젝트의 `.codex/config.toml`에 추가합니다. 앱에서 실행하는 Codex의 환경 변수 전달 방식은 해당 실행 환경을 확인하세요. `codex mcp list` 또는 TUI의 `/mcp`로 연결을 확인합니다. ChatGPT 웹은 로컬 Codex 설정을 자동으로 읽지 않습니다.
 
 ## 제공 도구
 

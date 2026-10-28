@@ -14,3 +14,10 @@ backups
 *.tar.gz
 test-results
 playwright-report
+
+# Never send host credentials or generated verification output to the builder.
+.aws
+.ssh
+.npmrc
+coverage
+.container-*

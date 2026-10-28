@@ -38,11 +38,10 @@
 
 ## 빠른 설치 — Docker Compose
 
-요구 사항: Docker Engine 또는 Docker Desktop과 Compose v2. 로컬 개발/MCP를 호스트에서 실행할 때는 Node.js 24 이상.
+요구 사항: Docker Engine 또는 Docker Desktop과 Compose v2. 기본 웹 앱과 Docker MCP에는 호스트 Node/Python, GitHub 계정이나 개인 폴더가 필요하지 않습니다. 호스트에서 직접 개발/실행하는 선택적 경로만 Node.js 24 이상을 사용합니다. [설치·이전·환경 독립성 안내](docs/INSTALL.md).
 
 ```bash
 cp .env.example .env
-mkdir -p config
 chmod 600 .env
 # .env를 편집해 OWNER_PASSWORD에 본인만 아는 12자 이상의 고유 비밀번호 입력
 # 특수문자가 있다면 Compose .env 문법에 맞춰 작은따옴표로 감싸세요.
@@ -57,7 +56,9 @@ docker compose logs --tail=50 sticker
 - `docker compose down`은 데이터를 보존합니다. **`docker compose down -v`는 데이터를 삭제합니다.**
 - `STICKER_PORT`를 바꿀 때 `APP_ORIGIN`도 같은 포트로 바꾸세요.
 - 코드 업데이트는 먼저 백업한 뒤 `docker compose up -d --build`로 적용합니다.
-- 컨테이너는 비루트 `node` 사용자로 실행되며, 루트 파일시스템은 읽기 전용입니다.
+- 컨테이너는 비루트 `node` 사용자로 실행되며, 루트 파일시스템은 읽기 전용입니다. 기본 설치에는 호스트 폴더 마운트가 없습니다.
+- 에이전트는 선택 사항입니다. 운영자 JSON 파일을 읽을 때만 `compose.agents.yaml`을 적용합니다. 기존 `AGENT_CONFIG_PATH` 사용자는 [이전 안내](docs/INSTALL.md#선택-에이전트--mcp)를 확인하세요.
+- 새 체크아웃의 실제 Docker 검증은 `bash scripts/verify-container.sh`와 [컨테이너 CI](.github/workflows/container.yml)로 실행합니다. 검증은 전용 임시 프로젝트/볼륨만 사용합니다.
 
 ### 휴대폰 또는 다른 컴퓨터에서 쓰려면
 
@@ -83,7 +84,7 @@ UI는 작은 화면을 지원하지만 기본 설치는 의도적으로 로컬 �
 
 ## 백업과 복원
 
-DB만 복사하면 첨부 파일과 불일치할 수 있습니다. 제공 스크립트는 서비스를 정지한 상태에서 **SQLite DB + uploads 전체**를 복사합니다. Docker Compose 프로젝트 폴더에서 실행하세요. 비밀번호·에이전트 설정은 백업에 포함되지 않으므로 별도로 안전하게 보관하세요.
+DB만 복사하면 첨부 파일과 불일치할 수 있습니다. 제공 스크립트는 Bash·tar·awk·grep이 있는 환경(Linux/macOS/WSL)에서 실행하며, 서비스를 정지한 상태에서 **SQLite DB + uploads 전체**를 복사합니다. Docker Compose 프로젝트 폴더에서 실행하세요. 비밀번호·에이전트 설정은 백업에 포함되지 않으므로 별도로 안전하게 보관하세요.
 
 ```bash
 # 기존에 실행 중이었다면 백업 후 다시 시작합니다. 같은 파일을 덮어쓰지 않습니다.
