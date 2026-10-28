@@ -8,9 +8,8 @@ import {
   attachmentSchema as attachmentResponseSchema,
 } from "./response-schemas.js";
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync, SQLInputValue, SQLOutputValue } from "node:sqlite";
+import type { SQLInputValue, SQLOutputValue } from "node:sqlite";
 import { z } from "zod";
-import { openDatabase } from "./db.js";
 import {
   STATUSES,
   type Actor,
@@ -24,16 +23,10 @@ import {
   type IssueDetail,
 } from "./types.js";
 
-export class DomainError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "DomainError";
-  }
-}
+export { DomainError } from "./domain-error.js";
+import { DomainError } from "./domain-error.js";
+import { StoreContext } from "./store-context.js";
+import { SessionService } from "./features/sessions.js";
 const id = z.string().min(1).max(128);
 const name = z.string().trim().min(1).max(160);
 const date = z
@@ -194,103 +187,51 @@ function reportRow(row: Row): AgentReport {
 
 /** All authorization and business rules shared by HTTP and MCP live here. */
 export class Store {
-  private db: DatabaseSync;
-  constructor(dataDir: string) {
-    this.db = openDatabase(dataDir);
+  private context: StoreContext;
+  readonly sessions: SessionService;
+  private get db() {
+    return this.context.db;
+  }
+  constructor(dataDir: string, clock: () => number = Date.now) {
+    this.context = new StoreContext(dataDir, clock);
+    this.sessions = new SessionService(this.context);
   }
   close() {
-    this.db.close();
+    this.context.db.close();
   }
   private tx<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const value = fn();
-      this.db.exec("COMMIT");
-      return value;
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      if (e instanceof Error && e.message.includes("UNIQUE constraint failed"))
-        throw new DomainError(
-          409,
-          "CONFLICT",
-          "이미 같은 식별자 또는 이름이 있습니다.",
-        );
-      throw e;
-    }
+    return this.context.tx(fn);
   }
   private get(table: string, idValue: string): Row {
-    const row = this.db
-      .prepare(`SELECT * FROM ${table} WHERE id=?`)
-      .get(idValue);
-    if (!row)
-      throw new DomainError(404, "NOT_FOUND", "항목을 찾을 수 없습니다.");
-    return row;
+    return this.context.get(table, idValue);
   }
   private insert(table: string, obj: Record<string, SQLInputValue>) {
-    const keys = Object.keys(obj);
-    this.db
-      .prepare(
-        `INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`,
-      )
-      .run(...Object.values(obj));
+    this.context.insert(table, obj);
   }
   private update(
     table: string,
     idValue: string,
     obj: Record<string, SQLInputValue>,
   ) {
-    const keys = Object.keys(obj);
-    if (keys.length)
-      this.db
-        .prepare(
-          `UPDATE ${table} SET ${keys.map((k) => `${k}=?`).join(",")} WHERE id=?`,
-        )
-        .run(...Object.values(obj), idValue);
+    this.context.update(table, idValue, obj);
   }
   private write(actor: Actor) {
-    if (!actor.canWrite)
-      throw new DomainError(403, "READ_ONLY", "읽기 전용 접근 권한입니다.");
+    this.context.write(actor);
   }
   private owner(actor: Actor) {
-    this.write(actor);
-    if (actor.role !== "owner")
-      throw new DomainError(
-        403,
-        "OWNER_REQUIRED",
-        "소유자만 할 수 있는 작업입니다.",
-      );
+    this.context.owner(actor);
   }
   private scope(actor: Actor, projectId: string) {
-    if (
-      actor.role !== "owner" &&
-      actor.projectIds !== null &&
-      !actor.projectIds.includes(projectId)
-    )
-      throw new DomainError(
-        403,
-        "PROJECT_SCOPE",
-        "이 프로젝트에 접근할 권한이 없습니다.",
-      );
+    this.context.scope(actor, projectId);
   }
   private project(actor: Actor, projectId: string): Project {
-    this.scope(actor, projectId);
-    return projectSchema.parse(this.get("projects", projectId));
+    return this.context.project(actor, projectId);
   }
   private issue(actor: Actor, issueId: string): Issue {
-    const row = issueRow(this.get("issues", issueId));
-    this.scope(actor, row.projectId);
-    return row;
+    return this.context.issue(actor, issueId);
   }
   private writableIssue(actor: Actor, issueId: string): Issue {
-    this.write(actor);
-    const issue = this.issue(actor, issueId);
-    if (issue.status === "closed" && actor.role !== "owner")
-      throw new DomainError(
-        403,
-        "OWNER_REQUIRED",
-        "종료된 이슈는 소유자만 변경할 수 있습니다.",
-      );
-    return issue;
+    return this.context.writableIssue(actor, issueId);
   }
   private activity(
     actor: Actor,
@@ -298,15 +239,7 @@ export class Store {
     action: string,
     detail: string,
   ) {
-    this.insert("activity", {
-      id: randomUUID(),
-      issueId,
-      action,
-      detail,
-      authorId: actor.id,
-      authorName: actor.name,
-      createdAt: now(),
-    });
+    this.context.activity(actor, issueId, action, detail);
   }
   private versionsBelong(
     projectId: string,
@@ -698,36 +631,70 @@ export class Store {
           issueId: id.nullable().optional().default(null),
           state: z.enum(["idle", "working", "blocked", "done"]),
           message: z.string().trim().max(2000),
+          externalSessionId: id.optional(),
+          eventId: id.optional(),
         })
         .strict(),
       input,
     );
-    return this.tx(() => {
-      this.project(actor, data.projectId);
-      if (data.issueId) {
-        const issue = this.db
-          .prepare("SELECT projectId FROM issues WHERE id=?")
-          .get(data.issueId);
-        if (!issue || issue.projectId !== data.projectId)
-          throw new DomainError(
-            400,
-            "ISSUE_PROJECT",
-            "이슈는 보고와 같은 프로젝트에 있어야 합니다.",
-          );
-      }
-      const old = this.db
-        .prepare("SELECT id FROM agent_reports WHERE agentId=? AND projectId=?")
-        .get(actor.id, data.projectId);
-      const record = {
-        id: old ? String(old.id) : randomUUID(),
-        agentId: actor.id,
-        agentName: actor.name,
-        ...data,
-        reportedAt: now(),
-      };
-      if (old) this.update("agent_reports", record.id, record);
-      else this.insert("agent_reports", record);
-      return { ...record, stale: false };
+    if (Boolean(data.externalSessionId) !== Boolean(data.eventId))
+      throw new DomainError(
+        400,
+        "VALIDATION",
+        "externalSessionId와 eventId를 함께 보내세요.",
+      );
+    const projection: { value: AgentReport | null } = { value: null };
+    const event = this.sessions.report(
+      actor,
+      {
+        projectId: data.projectId,
+        issueId: data.issueId,
+        externalSessionId:
+          data.externalSessionId ?? `legacy:${data.issueId ?? "project"}`,
+        eventId: data.eventId ?? randomUUID(),
+        message: data.message || "상세 메시지 없는 이전 보고",
+        ...(data.state === "done"
+          ? { kind: "end" }
+          : { kind: "report", state: data.state }),
+      },
+      !data.externalSessionId,
+      (receivedAt) => {
+        const old = this.db
+          .prepare(
+            "SELECT id FROM agent_reports WHERE agentId=? AND projectId=?",
+          )
+          .get(actor.id, data.projectId);
+        const record = {
+          id: old ? String(old.id) : randomUUID(),
+          agentId: actor.id,
+          agentName: actor.name,
+          projectId: data.projectId,
+          issueId: data.issueId,
+          state: data.state,
+          message: data.message,
+          reportedAt: receivedAt,
+        };
+        if (old) this.update("agent_reports", record.id, record);
+        else this.insert("agent_reports", record);
+        projection.value = { ...record, stale: false };
+      },
+    );
+    if (projection.value) return projection.value;
+    // A deduplicated event must not roll the compatibility snapshot backward or refresh its clock.
+    const current = this.db
+      .prepare("SELECT * FROM agent_reports WHERE agentId=? AND projectId=?")
+      .get(actor.id, data.projectId);
+    if (current) return reportRow(current);
+    // A new-API event can predate the first compatibility call; return its original receipt without fabricating a newer snapshot.
+    return reportRow({
+      id: event.session.id,
+      agentId: actor.id,
+      agentName: actor.name,
+      projectId: data.projectId,
+      issueId: data.issueId,
+      state: data.state,
+      message: data.message,
+      reportedAt: event.event.receivedAt,
     });
   }
 }

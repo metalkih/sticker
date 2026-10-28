@@ -114,3 +114,9 @@ Codex 설정은 사용자가 직접 `~/.codex/config.toml` 또는 선택한 프�
 - 수정 충돌 409는 무조건 재시도하지 말고 `sticker_get_issue`로 최신 revision/내용을 읽은 뒤 조정하세요.
 - 인증 실패 401, 범위/읽기 전용 위반 403은 토큰 설정을 확인하세요. 토큰을 출력해 디버깅하지 마세요.
 - API 주소는 origin만 받습니다. loopback이 아닌 HTTP는 거부하며 HTTPS를 요구합니다. 리다이렉트를 따라가거나 다른 URL에 토큰을 전달하지 않습니다.
+
+## 실행별 세션 기록
+
+`sticker_list_sessions`, `sticker_get_session`, `sticker_report_session_event`, `sticker_list_pending_requests`는 프로젝트 범위와 현재 인증 에이전트 ID를 서버에서 검증합니다. 세션 이벤트는 `eventId`로 재전송 중복을 제거하고, 내용 불일치는 409로 거부합니다. 입력 요청에는 `kind: request`, `requestKind: input|review`를 사용하세요. 에이전트 도구에는 소유자 응답·종결·승인·재개 기능이 없습니다.
+
+예전 상태 보고 도구도 유지하지만 eventId 없는 호출의 재시도 중복 제거는 보장하지 않습니다. 새 호출의 필드·권한·마이그레이션 및 UI 동작은 [에이전트 세션과 사용자 확인함](AGENT-SESSIONS.md)을 참고하세요.

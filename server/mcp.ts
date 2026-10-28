@@ -1,3 +1,4 @@
+import { registerSessionTools } from "./mcp/sessions.js";
 import { bootstrapSchema, apiErrorSchema } from "./response-schemas.js";
 /** STDIO adapter only: all authorization, attribution and persistence live in the HTTP domain API. */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -202,6 +203,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
       async (args) => safely(async () => result(await run(args))),
     );
   }
+  registerSessionTools({ tool, json });
   const e = encodeURIComponent;
   tool(
     "sticker_list_projects",

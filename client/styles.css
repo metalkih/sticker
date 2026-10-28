@@ -3420,3 +3420,127 @@ main {
 .conflict-review .button {
   font-size: 10px;
 }
+
+/* Session records are text-first and wrap even unbroken agent output on small screens. */
+.session-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 0;
+}
+.session-toolbar label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.session-card,
+.session-detail,
+.inbox-group {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.session-card header {
+  flex-wrap: wrap;
+}
+.session-card code,
+.session-detail code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.session-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font: inherit;
+  line-height: 1.6;
+  background: var(--bg);
+  padding: 12px;
+  border-radius: 8px;
+  max-width: 100%;
+}
+.session-detail textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  resize: vertical;
+}
+.session-timeline {
+  padding-left: 24px;
+}
+.session-timeline li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.session-timeline h4 {
+  margin: 8px 0;
+}
+.session-fetch-stamp {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.inbox-group {
+  margin: 24px 0;
+  display: grid;
+  gap: 12px;
+}
+.inbox-group h2 {
+  font-size: 17px;
+}
+@media (max-width: 600px) {
+  .session-toolbar {
+    align-items: stretch;
+  }
+  .session-toolbar select {
+    max-width: 100%;
+  }
+  .session-card {
+    padding: 16px;
+  }
+  .session-detail {
+    max-width: 100%;
+  }
+}
+.session-summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.session-detail {
+  padding: 20px 24px;
+}
+.session-detail h3 {
+  margin: 16px 0 8px;
+}
+.session-card .report-status,
+.session-detail .report-status {
+  font-size: 12px;
+  white-space: normal;
+  display: inline-block;
+}
+.session-detail pre {
+  background: #f5f6ef;
+}
+@media (max-width: 640px) {
+  .main-nav button {
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 2px;
+  }
+  .main-nav button > span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .session-detail {
+    padding: 18px;
+  }
+}
+.account-exit {
+  font-size: 11px;
+  white-space: nowrap;
+}

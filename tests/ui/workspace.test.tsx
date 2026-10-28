@@ -98,7 +98,7 @@ void test("DOM + real API: login, project/issue persistence, comments, links, st
   const f = await fixture();
   try {
     await f.login();
-    assert.ok(screen.getByText("첫 번째 스티커를 붙여 볼까요?"));
+    assert.ok(screen.getByText("프로젝트 없음"));
     await f.click("새 프로젝트");
     await f.user.type(
       screen.getByLabelText("프로젝트 이름"),
@@ -140,7 +140,9 @@ void test("DOM + real API: login, project/issue persistence, comments, links, st
     await f.click("이슈 편집");
     await f.user.selectOptions(screen.getByLabelText("상태", {}), "done");
     await f.click("변경 저장");
-    await screen.findByText("구현 완료, 아직 종료 전이에요");
+    const donePanel = screen.getByRole("dialog", { name: "이슈 상세" });
+    await within(donePanel).findByText("구현 완료");
+    await within(donePanel).findByText("소유자 확인 전");
     await f.click("상세 닫기");
     await waitFor(() => {
       assert.equal(
@@ -243,8 +245,8 @@ void test("DOM + real API: wrong password, Escape focus return, version creation
       );
     });
     await f.click("에이전트 기록");
-    await screen.findByText("상태 보고는 실행 증명이 아니에요.");
-    assert.ok(screen.getByText(/아직 전달된 상태 보고가 없어요/));
+    await screen.findByText("출처: 에이전트 자기 보고");
+    assert.ok(await screen.findByText(/아직 전달된 세션이 없어요/));
     await f.click("로그아웃");
     await screen.findByRole("heading", { name: /생각을 붙이고/ });
   } finally {
@@ -521,10 +523,10 @@ void test("agent freshness is reevaluated on workspace refresh", async (t) => {
     );
     await f.login();
     await f.click("에이전트 기록");
-    await screen.findByText("최근 자기 보고");
+    await screen.findByText("↗ 작업 중이라는 자기 보고");
     clock = now + 360_000;
     await f.click("작업 공간 새로고침");
-    await screen.findByText("오래된 보고");
+    await screen.findByText("◷ 오래된 자기 보고");
   } finally {
     await f.close();
   }
@@ -570,7 +572,6 @@ void test("editor awaits save callbacks and reports their rejection in the form"
     cleanup();
   }
 });
-
 void test("cached agent reports age when workspace refresh fails", async (t) => {
   const f = await fixture();
   const now = Date.now();
@@ -600,7 +601,7 @@ void test("cached agent reports age when workspace refresh fails", async (t) => 
     );
     await f.login();
     await f.click("에이전트 기록");
-    await screen.findByText("최근 자기 보고");
+    await screen.findByText("↗ 작업 중이라는 자기 보고");
     clock = now + 360_000;
     t.mock.method(globalThis, "fetch", () =>
       Promise.reject(new Error("오프라인 새로고침 실패")),
@@ -608,11 +609,203 @@ void test("cached agent reports age when workspace refresh fails", async (t) => 
     await f.click("작업 공간 새로고침");
     await screen.findByText("오프라인 새로고침 실패");
     assert.ok(
-      screen.queryByText("최근 자기 보고") === null,
+      screen.queryByText("↗ 작업 중이라는 자기 보고") === null,
       "A failed refresh must not keep an old working report marked recent.",
     );
-    assert.ok(screen.getByText("오래된 보고"));
+    assert.ok(screen.getByText("◷ 오래된 자기 보고"));
     assert.ok(screen.getByText("캐시된 자기 보고"));
+  } finally {
+    t.mock.restoreAll();
+    await f.close();
+  }
+});
+
+void test("session UI uses separate keyboard cards, deep-linked timeline and retained cached data on refresh failure", async (t) => {
+  const f = await fixture();
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const p = f.instance.store.createProject(owner, {
+      key: "SU",
+      name: "세션 UI",
+    });
+    const empty = f.instance.store.createProject(owner, {
+      key: "SE",
+      name: "빈 기록",
+    });
+    const issue = f.instance.store.createIssue(owner, {
+      projectId: p.id,
+      title: "연결 이슈",
+    });
+    const agent = {
+      id: "fixture",
+      name: "검증 에이전트",
+      role: "agent" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const body = {
+      projectId: p.id,
+      issueId: issue.id,
+      eventId: "e",
+      kind: "report",
+      message: "자기 보고",
+    };
+    const first = f.instance.store.sessions.report(agent, {
+      ...body,
+      externalSessionId: "parallel-a",
+    });
+    f.instance.store.sessions.report(agent, {
+      ...body,
+      externalSessionId: "parallel-b",
+    });
+    await f.login();
+    await f.click("에이전트 기록");
+    assert.equal(
+      Boolean(screen.queryByText("상태 보고는 실행 증명이 아니에요.")),
+      false,
+    );
+    const card = await screen.findByRole("button", {
+      name: "세션 parallel-a 상세",
+    });
+    assert.ok(screen.getByRole("button", { name: "세션 parallel-b 상세" }));
+    card.focus();
+    await f.user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", {
+      name: "에이전트 세션 상세",
+    });
+    assert.ok(
+      await within(dialog).findByRole("list", { name: "이벤트 타임라인" }),
+    );
+    assert.ok(within(dialog).getByText("eventId: e"));
+    assert.ok(dom.window.location.hash.includes(first.session.id));
+    await f.user.keyboard("{Escape}");
+    await waitFor(() => {
+      assert.equal(document.activeElement, card);
+    });
+    let fail = true;
+    const realFetch = globalThis.fetch;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        if (fail && input === "/api/sessions")
+          return Promise.resolve(
+            Response.json({ error: "일시 조회 실패" }, { status: 503 }),
+          );
+        return realFetch(input, init);
+      },
+    );
+    const stamp = screen.getByText(/마지막 확인:/).textContent;
+    await f.click("세션 새로고침");
+    await screen.findByText("일시 조회 실패");
+    assert.ok(screen.getByRole("button", { name: "세션 parallel-a 상세" }));
+    assert.ok(screen.getByText(/마지막 확인:/).textContent.startsWith(stamp));
+    fail = false;
+    await f.user.selectOptions(
+      screen.getByLabelText("세션 프로젝트 필터"),
+      empty.id,
+    );
+    await screen.findByText("아직 전달된 세션이 없어요");
+    act(() => {
+      dom.window.location.hash = `section=agents&session=${first.session.id}`;
+    });
+    await screen.findByRole("dialog", { name: "에이전트 세션 상세" });
+    assert.ok(await screen.findByRole("list", { name: "이벤트 타임라인" }));
+  } finally {
+    t.mock.restoreAll();
+    await f.close();
+  }
+});
+
+void test("owner inbox preserves exact-request draft on real stale revision and refreshes processed state without closing its issue", async (t) => {
+  const f = await fixture();
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const p = f.instance.store.createProject(owner, {
+      key: "IN",
+      name: "확인함 UI",
+    });
+    const issue = f.instance.store.createIssue(owner, {
+      projectId: p.id,
+      title: "닫히지 않을 이슈",
+    });
+    const agent = {
+      id: "fixture",
+      name: "검증 에이전트",
+      role: "agent" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const event = f.instance.store.sessions.report(agent, {
+      projectId: p.id,
+      issueId: issue.id,
+      externalSessionId: "inbox-run",
+      eventId: "q",
+      kind: "request",
+      requestKind: "input",
+      message: "정확한 질문",
+    });
+    assert.ok(event.request);
+    const id = event.request.id;
+    await f.login();
+    await f.click("사용자 확인함");
+    assert.equal(Boolean(screen.queryByText(/답변·검토 종결은/)), false);
+    await f.user.click(
+      await screen.findByRole("button", { name: "요청 정확한 질문 확인" }),
+    );
+    await screen.findByRole("dialog", { name: "요청 확인" });
+    const input = await screen.findByLabelText("답변");
+    await f.user.type(input, "작성 중인 답변 유지");
+    f.instance.store.sessions.respond(owner, id, {
+      revision: 1,
+      operationId: crypto.randomUUID(),
+      body: "다른 창에서 기록한 답변",
+    });
+    await f.click("답변 기록");
+    await screen.findByRole("alert");
+    assert.equal(
+      screen.getByLabelText<HTMLTextAreaElement>("답변").value,
+      "작성 중인 답변 유지",
+    );
+    await screen.findByText("처리 완료: 답변 기록됨");
+    assert.ok(screen.getByText("다른 창에서 기록한 답변"));
+    assert.equal(
+      screen.getByRole<HTMLButtonElement>("button", { name: "답변 기록" })
+        .disabled,
+      true,
+    );
+    await f.user.keyboard("{Escape}");
+    await screen.findByText("미처리 요청 0건");
+    await waitFor(() => {
+      assert.equal(
+        document.activeElement,
+        screen.getByRole("button", { name: "처리 완료 보기" }),
+      );
+    });
+    await f.click("처리 완료 보기");
+    assert.ok(
+      await screen.findByRole("button", { name: "요청 정확한 질문 확인" }),
+    );
+    assert.equal(
+      f.instance.store.getIssue(owner, issue.id).issue.status,
+      "backlog",
+    );
+    assert.equal(
+      f.instance.store.sessions.getRequest(owner, id).response,
+      "다른 창에서 기록한 답변",
+    );
   } finally {
     t.mock.restoreAll();
     await f.close();

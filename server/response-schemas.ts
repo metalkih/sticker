@@ -103,3 +103,11 @@ export const apiErrorSchema = z.object({
   error: z.string().optional(),
   code: z.string().optional(),
 });
+
+export {
+  sessionSchema,
+  sessionEventSchema,
+  sessionRequestSchema,
+  sessionDetailSchema,
+  sessionEventResultSchema,
+} from "./contracts/sessions.js";

@@ -104,3 +104,10 @@ export interface IssueDetail {
   activity: Activity[];
   attachments: Attachment[];
 }
+
+export type {
+  AgentSession,
+  SessionEvent,
+  SessionRequest,
+  SessionDetail,
+} from "./contracts/sessions.js";
