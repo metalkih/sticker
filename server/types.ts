@@ -24,6 +24,7 @@ export interface Project {
   updatedAt: string;
 }
 export interface Version {
+  revision: number;
   id: string;
   projectId: string;
   name: string;
@@ -111,3 +112,12 @@ export type {
   SessionRequest,
   SessionDetail,
 } from "./contracts/sessions.js";
+
+export type {
+  VersionReadiness,
+  Changelog,
+  CarryoverInput,
+  CarryoverResult,
+  CarryoverPreview,
+  ReleaseResult,
+} from "./contracts/releases.js";

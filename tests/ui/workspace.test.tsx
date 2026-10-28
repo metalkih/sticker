@@ -233,9 +233,20 @@ void test("DOM + real API: wrong password, Escape focus return, version creation
     await f.click("버전 만들기");
     await screen.findByRole("heading", { name: "v1.0" });
     await f.click("v1.0 버전 편집");
-    await f.user.selectOptions(screen.getByLabelText("버전 상태"), "released");
+    assert.equal(screen.queryByRole("option", { name: "배포됨" }), null);
+    await f.user.selectOptions(screen.getByLabelText("버전 상태"), "archived");
     await f.click("변경 저장");
-    await screen.findByText("배포됨", {});
+    await screen.findByText("보관됨");
+    await f.click("v1.0 버전 상세");
+    await screen.findByRole("button", { name: "출시 검토" });
+    await f.click("출시 검토");
+    await screen.findByLabelText(/상태 기록을 확인합니다/);
+    await f.user.click(screen.getByLabelText(/상태 기록을 확인합니다/));
+    await f.click("출시 상태 확정");
+    await screen.findByText("출시 상태가 기록되었습니다.");
+    await f.click("취소");
+    await f.click("버전 목록");
+    await screen.findByText("배포됨");
     await f.click("v1.0 버전 삭제");
     await f.click("삭제하기");
     await waitFor(() => {

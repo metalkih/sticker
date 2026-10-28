@@ -5,6 +5,7 @@ import { resolve, join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { AuthManager, type AgentConfig } from "./auth.js";
 import { Store, DomainError } from "./domain.js";
+import { registerReleaseRoutes } from "./routes/releases.js";
 import { registerRelationRoutes } from "./routes/relations.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import type { Actor } from "./types.js";
@@ -52,11 +53,11 @@ export function createApp(config: AppConfig) {
   const dataDir = resolve(config.dataDir),
     uploadDir = join(dataDir, "uploads");
   mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
-  const store = new Store(dataDir),
-    app = express();
   const appOrigin = new URL(config.appOrigin ?? "http://localhost:8787");
   if (!["http:", "https:"].includes(appOrigin.protocol))
     throw new Error("APP_ORIGIN must be an http(s) origin.");
+  const store = new Store(dataDir, Date.now, appOrigin.origin),
+    app = express();
   const origins = new Set([appOrigin.origin]);
   if (["localhost", "127.0.0.1"].includes(appOrigin.hostname)) {
     const alias = new URL(appOrigin);
@@ -135,6 +136,7 @@ export function createApp(config: AppConfig) {
   });
   registerSessionRoutes(app, store.sessions);
   registerRelationRoutes(app, store.relations);
+  registerReleaseRoutes(app, store.releases);
   app.get("/api/bootstrap", (req, res) =>
     res.json(store.bootstrap(actor(req))),
   );

@@ -19,6 +19,7 @@ export const projectSchema = z.object({
   updatedAt: z.string(),
 });
 export const versionSchema = z.object({
+  revision: z.number().int().positive(),
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
