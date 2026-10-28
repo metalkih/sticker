@@ -1,4 +1,5 @@
 import { registerReleaseTools } from "./mcp/releases.js";
+import { registerViewTools } from "./mcp/views.js";
 import { registerRelationTools } from "./mcp/relations.js";
 import { registerSessionTools } from "./mcp/sessions.js";
 import { bootstrapSchema, apiErrorSchema } from "./response-schemas.js";
@@ -207,6 +208,7 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
   }
   registerSessionTools({ tool, json });
   registerRelationTools({ tool, json });
+  registerViewTools({ tool, json });
   registerReleaseTools({ tool, json });
   const e = encodeURIComponent;
   tool(
@@ -245,36 +247,6 @@ export function createStickerMcp(apiUrl: string, token: string): McpServer {
     { versionId: id, revision: z.number().int().positive(), ...versionFields },
     async ({ versionId, ...body }) =>
       json(`/api/versions/${e(versionId)}`, "PATCH", body),
-  );
-  tool(
-    "sticker_list_issues",
-    "접근 가능한 이슈를 조회/필터합니다. ready/waiting 이슈를 실행하지 않습니다.",
-    {
-      projectId: id.optional(),
-      status: z
-        .enum(["backlog", "ready", "in_progress", "waiting", "done", "closed"])
-        .optional(),
-      assignee: z.string().optional(),
-      query: z.string().max(200).optional(),
-    },
-    async (a) =>
-      (await bootstrap()).issues.filter(
-        (i: {
-          projectId: string;
-          status: string;
-          assignee: string;
-          title: string;
-          key: string;
-        }) =>
-          (!a.projectId || i.projectId === a.projectId) &&
-          (!a.status || i.status === a.status) &&
-          (!a.assignee || i.assignee === a.assignee) &&
-          (!a.query ||
-            `${i.key} ${i.title}`
-              .toLowerCase()
-              .includes(a.query.toLowerCase())),
-      ),
-    true,
   );
   tool(
     "sticker_get_issue",

@@ -27,6 +27,7 @@ export { DomainError } from "./domain-error.js";
 import { DomainError } from "./domain-error.js";
 import { StoreContext } from "./store-context.js";
 import { ReleaseService } from "./features/releases.js";
+import { ViewService } from "./features/views.js";
 import { RelationService } from "./features/relations.js";
 import { SessionService } from "./features/sessions.js";
 const id = z.string().min(1).max(128);
@@ -196,6 +197,7 @@ export class Store {
   private context: StoreContext;
   readonly sessions: SessionService;
   readonly relations: RelationService;
+  readonly views: ViewService;
   readonly releases: ReleaseService;
   private get db() {
     return this.context.db;
@@ -208,6 +210,7 @@ export class Store {
     this.context = new StoreContext(dataDir, clock);
     this.sessions = new SessionService(this.context);
     this.relations = new RelationService(this.context);
+    this.views = new ViewService(this.context, this.relations);
     this.releases = new ReleaseService(
       this.context,
       this.relations,

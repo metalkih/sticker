@@ -7,6 +7,7 @@ export interface Route {
   version: string;
   tab: string;
   bucket: string;
+  view: string;
 }
 export const readRoute = (): Route => {
   const params = new URLSearchParams(window.location.hash.slice(1));
@@ -25,6 +26,7 @@ export const readRoute = (): Route => {
           : "issues");
   return {
     section,
+    view: section === "issues" ? params.get("view") || "" : "",
     project: params.get("project") || "",
     issue,
     session: section === "agents" && !issue ? rawSession : "",
@@ -100,12 +102,15 @@ export function subscribeRoute(listener: (route: Route) => void) {
 export function navigate(next: Partial<Route>) {
   const merged = { ...readRoute(), ...next };
   if (next.section && next.section !== readRoute().section) {
+    merged.view = next.view ?? "";
     merged.session = next.session ?? "";
     merged.request = next.request ?? "";
     merged.version = next.version ?? "";
     merged.tab = next.tab ?? "";
     merged.bucket = next.bucket ?? "";
   }
+  if (next.project !== undefined && next.project !== readRoute().project)
+    merged.view = next.view ?? "";
   const params = new URLSearchParams();
   Object.entries(merged).forEach(([key, value]) => {
     if (value && !(key === "section" && value === "issues"))

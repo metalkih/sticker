@@ -1,11 +1,10 @@
+import { SavedIssueWorkspace } from "./features/views/SavedIssueWorkspace.js";
+import { SavedViewNavigation } from "./features/views/SavedViewNavigation.js";
 import VersionDetail from "./features/releases/VersionDetail.js";
-import { IssueCard } from "./features/issues/IssueCard.js";
-import { IssueListRow } from "./features/issues/IssueListRow.js";
 import { useRelationSummaries } from "./features/relations/RelationSummary.js";
 import { bootstrapSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { Bootstrap, Project, Status, Version } from "../server/types.js";
-import { STATUSES } from "../server/types.js";
 import { api, ApiError, json, errorText } from "./api.js";
 import { Icon, Empty, ErrorNotice } from "./components.js";
 import {
@@ -15,13 +14,7 @@ import {
   Confirm,
 } from "./editors.js";
 import IssuePanel from "./IssuePanel.js";
-import {
-  statusNames,
-  statusIcons,
-  priorityNames,
-  versionStateNames,
-  dateText,
-} from "./format.js";
+import { versionStateNames, dateText } from "./format.js";
 import { readRoute, navigate, subscribeRoute, type Route } from "./router.js";
 import AgentSessions from "./features/sessions/AgentSessions.js";
 import OwnerInbox from "./features/sessions/OwnerInbox.js";
@@ -32,12 +25,6 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState("");
   const [route, setRoute] = useState<Route>(readRoute);
-  const [mode, setMode] = useState<"board" | "list">("board");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [priority, setPriority] = useState("");
-  const [assignee, setAssignee] = useState("");
-  const [versionFilter, setVersionFilter] = useState("");
   const [projectEditor, setProjectEditor] = useState<Project | "new" | null>(
     null,
   );
@@ -52,7 +39,18 @@ export default function App() {
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [reportTime, setReportTime] = useState(Date.now);
-  const [filterProject, setFilterProject] = useState(route.project);
+  const [viewRefresh, setViewRefresh] = useState(0);
+  const viewsChanged = useCallback(() => {
+    setViewRefresh((v) => v + 1);
+  }, []);
+  const selectView = useCallback((view: string, project?: string) => {
+    navigate({
+      section: "issues",
+      view,
+      issue: "",
+      ...(project ? { project } : {}),
+    });
+  }, []);
   const refresh = useCallback(
     () =>
       api("/bootstrap", undefined, bootstrapSchema)
@@ -83,23 +81,6 @@ export default function App() {
     };
   }, [refresh]);
   useEffect(() => subscribeRoute(setRoute), []);
-  if (filterProject !== route.project) {
-    setFilterProject(route.project);
-    setStatus("");
-    setPriority("");
-    setAssignee("");
-    setVersionFilter("");
-    setSearch("");
-  }
-
-  useEffect(() => {
-    if (
-      data &&
-      route.project &&
-      !data.projects.some((p) => p.id === route.project)
-    )
-      navigate({ project: "" });
-  }, [data, route.project]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       const tag =
@@ -144,21 +125,6 @@ export default function App() {
         (i) => !route.project || i.projectId === route.project,
       ) || [],
     [data, route.project],
-  );
-  const filtered = useMemo(
-    () =>
-      projectIssues.filter(
-        (i) =>
-          (!search ||
-            `${i.key} ${i.title} ${i.description} ${i.labels.join(" ")}`
-              .toLowerCase()
-              .includes(search.toLowerCase())) &&
-          (!status || i.status === status) &&
-          (!priority || i.priority === priority) &&
-          (!assignee || i.assignee === assignee) &&
-          (!versionFilter || i.targetVersionId === versionFilter),
-      ),
-    [projectIssues, search, status, priority, assignee, versionFilter],
   );
   const currentVersions =
     data?.versions.filter(
@@ -333,6 +299,13 @@ export default function App() {
             <span className="sidebar-empty">아직 붙인 프로젝트가 없어요.</span>
           )}
         </nav>
+        <SavedViewNavigation
+          projectId={route.project}
+          selectedId={route.view}
+          refreshToken={viewRefresh}
+          onSelect={selectView}
+          onChanged={viewsChanged}
+        />
         <div className="sidebar-bottom">
           <button
             className="account-button"
@@ -484,233 +457,22 @@ export default function App() {
                   <span className="peel" />
                 </div>
               </div>
-              <div className="issues-section">
-                <div className="issues-toolbar">
-                  <div className="section-title">
-                    <h2>붙여 둔 이슈</h2>
-                    <span>{filtered.length}</span>
-                  </div>
-                  <div className="view-switch" aria-label="보기 방식">
-                    <button
-                      className={mode === "board" ? "active" : ""}
-                      aria-pressed={mode === "board"}
-                      onClick={() => {
-                        setMode("board");
-                      }}
-                    >
-                      <Icon name="board" size={15} />
-                      보드
-                    </button>
-                    <button
-                      className={mode === "list" ? "active" : ""}
-                      aria-pressed={mode === "list"}
-                      onClick={() => {
-                        setMode("list");
-                      }}
-                    >
-                      <Icon name="list" size={15} />
-                      리스트
-                    </button>
-                  </div>
-                </div>
-                <div className="filters">
-                  <label className="search-field">
-                    <Icon name="search" size={16} />
-                    <input
-                      aria-label="이슈 검색"
-                      placeholder="이슈 검색…"
-                      value={search}
-                      onChange={(e) => {
-                        setSearch(e.target.value);
-                      }}
-                    />
-                    <kbd>/</kbd>
-                  </label>
-                  <select
-                    aria-label="상태 필터"
-                    value={status}
-                    onChange={(e) => {
-                      setStatus(e.target.value);
-                    }}
-                  >
-                    <option value="">모든 상태</option>
-                    {STATUSES.map((s) => (
-                      <option value={s} key={s}>
-                        {statusNames[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="우선순위 필터"
-                    value={priority}
-                    onChange={(e) => {
-                      setPriority(e.target.value);
-                    }}
-                  >
-                    <option value="">우선순위</option>
-                    {Object.entries(priorityNames).map(([v, n]) => (
-                      <option value={v} key={v}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="담당자 필터"
-                    value={assignee}
-                    onChange={(e) => {
-                      setAssignee(e.target.value);
-                    }}
-                  >
-                    <option value="">모든 담당자</option>
-                    {Array.from(
-                      new Set(
-                        projectIssues.map((i) => i.assignee).filter(Boolean),
-                      ),
-                    ).map((a) => (
-                      <option value={a} key={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                  {currentVersions.length > 0 && (
-                    <select
-                      aria-label="목표 버전 필터"
-                      value={versionFilter}
-                      onChange={(e) => {
-                        setVersionFilter(e.target.value);
-                      }}
-                    >
-                      <option value="">모든 목표 버전</option>
-                      {currentVersions.map((v) => (
-                        <option value={v.id} key={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {(search ||
-                    status ||
-                    priority ||
-                    assignee ||
-                    versionFilter) && (
-                    <button
-                      className="text-button clear-filters"
-                      onClick={() => {
-                        setSearch("");
-                        setStatus("");
-                        setPriority("");
-                        setAssignee("");
-                        setVersionFilter("");
-                      }}
-                    >
-                      초기화
-                    </button>
-                  )}
-                </div>
-                {!data.projects.length ? (
-                  <Empty
-                    title="프로젝트 없음"
-                    action={
-                      <button
-                        className="button primary"
-                        onClick={() => {
-                          setProjectEditor("new");
-                        }}
-                      >
-                        <Icon name="plus" size={16} />첫 프로젝트 만들기
-                      </button>
-                    }
-                  />
-                ) : !projectIssues.length ? (
-                  <Empty
-                    title="이슈 없음"
-                    action={
-                      <button className="button primary" onClick={newIssue}>
-                        <Icon name="plus" size={16} />첫 이슈 만들기
-                      </button>
-                    }
-                  />
-                ) : !filtered.length ? (
-                  <Empty title="검색 결과 없음" />
-                ) : mode === "board" ? (
-                  <div className="board">
-                    {STATUSES.filter((s) => !status || s === status).map(
-                      (s) => (
-                        <section className={`board-column column-${s}`} key={s}>
-                          <header>
-                            <div>
-                              <span className={`column-icon status-${s}`}>
-                                {statusIcons[s]}
-                              </span>
-                              <h3>{statusNames[s]}</h3>
-                              <span className="count">
-                                {filtered.filter((i) => i.status === s).length}
-                              </span>
-                            </div>
-                            <button
-                              className="icon-button"
-                              aria-label={`${statusNames[s]} 이슈 추가`}
-                              onClick={() => {
-                                setIssueEditor(s);
-                              }}
-                            >
-                              <Icon name="plus" size={15} />
-                            </button>
-                          </header>
-                          <div className="column-body">
-                            {filtered
-                              .filter((i) => i.status === s)
-                              .map((i) => (
-                                <IssueCard
-                                  key={i.id}
-                                  issue={i}
-                                  data={data}
-                                  relation={relations.summaries[i.id]}
-                                  relationStale={!!relations.error}
-                                  onRelationOpen={(id) => {
-                                    navigate({ issue: id });
-                                  }}
-                                  onOpen={() => {
-                                    navigate({ issue: i.id });
-                                  }}
-                                />
-                              ))}
-                            {!filtered.some((i) => i.status === s) && (
-                              <div className="column-empty">
-                                아직 붙인 이슈가 없어요
-                              </div>
-                            )}
-                          </div>
-                        </section>
-                      ),
-                    )}
-                  </div>
-                ) : (
-                  <div className="issue-list">
-                    <div className="list-table-head">
-                      <span>이슈</span>
-                      <span>상태</span>
-                      <span>담당자</span>
-                      <span>목표 버전</span>
-                    </div>
-                    {filtered.map((i) => (
-                      <IssueListRow
-                        key={i.id}
-                        issue={i}
-                        data={data}
-                        relation={relations.summaries[i.id]}
-                        relationStale={!!relations.error}
-                        onOpen={() => {
-                          navigate({ issue: i.id });
-                        }}
-                        onRelationOpen={(id) => {
-                          navigate({ issue: id });
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <SavedIssueWorkspace
+                data={data}
+                projectId={route.project}
+                viewId={route.view}
+                onSelect={selectView}
+                onChanged={viewsChanged}
+                onNew={(s) => {
+                  if (!data.projects.length) setProjectEditor("new");
+                  else setIssueEditor(s);
+                }}
+                relations={relations.summaries}
+                relationStale={!!relations.error}
+                onOpen={(id) => {
+                  navigate({ issue: id });
+                }}
+              />
               {relations.error && (
                 <div role="alert" className="error-notice">
                   관계 요약을 갱신하지 못했어요. 이전 정보일 수 있습니다.{" "}
