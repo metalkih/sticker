@@ -1,3 +1,18 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { Store } from "../server/domain.js";
+import { createApp } from "../server/app.js";
+import { z } from "zod";
+import {
+  projectSchema,
+  issueSchema,
+  commentSchema,
+  attachmentSchema,
+  reportSchema,
+  apiErrorSchema,
+} from "../server/response-schemas.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -16,17 +31,35 @@ async function fixture(
     body: Record<string, unknown>,
   ) => void,
 ) {
-  const server = createServer(async (req, res) => {
-    let raw = "";
-    for await (const c of req) raw += c;
+  async function handle(req: IncomingMessage, res: ServerResponse) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      const value: unknown = chunk;
+      assert.ok(Buffer.isBuffer(value));
+      chunks.push(value);
+    }
+    const raw = Buffer.concat(chunks).toString("utf8");
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
     res.setHeader("content-type", "application/json");
-    handler(req, res, raw ? JSON.parse(raw) : {});
+    handler(req, res, z.record(z.string(), z.unknown()).parse(parsed));
+  }
+  const server = createServer((req, res) => {
+    void handle(req, res).catch((error: unknown) => {
+      res.destroy(
+        error instanceof Error ? error : new Error("Invalid test request"),
+      );
+    });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const address = server.address() as { port: number };
   return {
-    url: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((r) => server.close(() => r())),
+    url: `http://127.0.0.1:${String(address.port)}`,
+    close: () =>
+      new Promise<void>((r) =>
+        server.close(() => {
+          r();
+        }),
+      ),
   };
 }
 function connect(url: string, suppliedToken = token) {
@@ -44,11 +77,35 @@ function connect(url: string, suppliedToken = token) {
   const client = new Client({ name: "sticker-test", version: "1.0.0" });
   return { transport, client };
 }
-function data(result: any) {
-  return JSON.parse(result.content[0].text);
+function data<T>(result: unknown, schema: z.ZodType<T>): T {
+  const envelope = z
+    .object({
+      content: z
+        .array(z.object({ type: z.literal("text"), text: z.string() }))
+        .min(1),
+    })
+    .parse(result);
+  const value: unknown = JSON.parse(envelope.content[0].text);
+  return schema.parse(value);
 }
+function resourceBlob(result: unknown): string {
+  const envelope = z
+    .object({
+      content: z
+        .array(
+          z.object({
+            type: z.literal("resource"),
+            resource: z.object({ blob: z.string() }),
+          }),
+        )
+        .min(1),
+    })
+    .parse(result);
+  return envelope.content[0].resource.blob;
+}
+const toolErrorSchema = apiErrorSchema.extend({ status: z.number() });
 
-test("official SDK initializes STDIO, lists tools and calls issue tools with authoritative bearer only", async () => {
+void test("official SDK initializes STDIO, lists tools and calls issue tools with authoritative bearer only", async () => {
   const calls: {
     method: string;
     url: string;
@@ -56,12 +113,28 @@ test("official SDK initializes STDIO, lists tools and calls issue tools with aut
   }[] = [];
   const api = await fixture((req, res, body) => {
     assert.equal(req.headers.authorization, `Bearer ${token}`);
-    calls.push({ method: req.method!, url: req.url!, body });
+    calls.push({ method: req.method ?? "", url: req.url ?? "", body });
     if (req.url === "/api/bootstrap")
       res.end(
         JSON.stringify({
-          actor: { id: "agent-test" },
-          projects: [{ id: "p1", name: "테스트" }],
+          actor: {
+            id: "agent-test",
+            name: "test",
+            role: "agent",
+            canWrite: true,
+            projectIds: null,
+          },
+          projects: [
+            {
+              id: "p1",
+              key: "TST",
+              name: "테스트",
+              description: "",
+              color: "#ffffff",
+              createdAt: "2026-01-01",
+              updatedAt: "2026-01-01",
+            },
+          ],
           versions: [],
           issues: [],
           reports: [],
@@ -95,22 +168,28 @@ test("official SDK initializes STDIO, lists tools and calls issue tools with aut
       name: "sticker_list_projects",
       arguments: {},
     });
-    assert.equal(data(projects)[0].name, "테스트");
+    assert.equal(data(projects, projectSchema.array())[0].name, "테스트");
     const created = await client.callTool({
       name: "sticker_create_issue",
       arguments: { projectId: "p1", title: "첫 번째 스티커" },
     });
-    assert.equal(data(created).key, "TST-1");
+    assert.equal(data(created, z.object({ key: z.string() })).key, "TST-1");
     const updated = await client.callTool({
       name: "sticker_update_issue",
       arguments: { issueId: "i1", revision: 1, status: "waiting" },
     });
-    assert.equal(data(updated).status, "waiting");
+    assert.equal(
+      data(updated, z.object({ status: z.string() })).status,
+      "waiting",
+    );
     const commented = await client.callTool({
       name: "sticker_add_comment",
       arguments: { issueId: "i1", body: "확인했습니다." },
     });
-    assert.equal(data(commented).authorId, "agent-test");
+    assert.equal(
+      data(commented, z.object({ authorId: z.string() })).authorId,
+      "agent-test",
+    );
     await client.callTool({
       name: "sticker_report_status",
       arguments: {
@@ -133,7 +212,7 @@ test("official SDK initializes STDIO, lists tools and calls issue tools with aut
   }
 });
 
-test("tool errors preserve conflict semantics and never leak bearer credentials", async () => {
+void test("tool errors preserve conflict semantics and never leak bearer credentials", async () => {
   const api = await fixture((_req, res) => {
     res.statusCode = 409;
     res.end(
@@ -151,8 +230,8 @@ test("tool errors preserve conflict semantics and never leak bearer credentials"
       arguments: { issueId: "i1", revision: 1, title: "retry" },
     });
     assert.equal(result.isError, true);
-    assert.equal(data(result).status, 409);
-    assert.equal(data(result).code, "revision_conflict");
+    assert.equal(data(result, toolErrorSchema).status, 409);
+    assert.equal(data(result, toolErrorSchema).code, "revision_conflict");
     assert.equal(JSON.stringify(result).includes(token), false);
   } finally {
     await client.close();
@@ -160,7 +239,7 @@ test("tool errors preserve conflict semantics and never leak bearer credentials"
   }
 });
 
-test("caller cannot forge authors, close issues, omit revision or fetch arbitrary URLs", async () => {
+void test("caller cannot forge authors, close issues, omit revision or fetch arbitrary URLs", async () => {
   let count = 0;
   const api = await fixture((_req, res) => {
     count++;
@@ -193,13 +272,7 @@ test("caller cannot forge authors, close issues, omit revision or fetch arbitrar
 });
 
 // This is not a mock API: it exercises SQLite, authorization, files and activity through STDIO.
-test("MCP and browser API share real persistence, scopes, revisions and private attachments", async (t) => {
-  const { mkdtempSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const { createHash } = await import("node:crypto");
-  const { Store } = await import("../server/domain.js");
-  const { createApp } = await import("../server/app.js");
+void test("MCP and browser API share real persistence, scopes, revisions and private attachments", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "sticker-mcp-"));
   const owner = {
     id: "owner",
@@ -232,12 +305,13 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
   const http = app.app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => http.once("listening", resolve));
   const { client, transport } = connect(
-    `http://127.0.0.1:${(http.address() as { port: number }).port}`,
+    `http://127.0.0.1:${String((http.address() as { port: number }).port)}`,
   );
   try {
     await client.connect(transport);
     const projects = data(
       await client.callTool({ name: "sticker_list_projects", arguments: {} }),
+      projectSchema.array(),
     );
     assert.deepEqual(
       projects.map((p: { id: string }) => p.id),
@@ -253,6 +327,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
         name: "sticker_create_issue",
         arguments: { projectId: project.id, title: "에이전트가 만든 이슈" },
       }),
+      issueSchema,
     );
     assert.ok(issue.id);
     await t.test(
@@ -269,7 +344,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
           true,
           JSON.stringify(result).slice(0, 1000),
         );
-        const created = data(result);
+        const created = data(result, issueSchema);
         assert.equal(created.title, title);
         assert.equal(created.description, description);
       },
@@ -279,6 +354,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
         name: "sticker_add_comment",
         arguments: { issueId: issue.id, body: "기록 확인" },
       }),
+      commentSchema,
     );
     assert.equal(comment.authorId, "codex-test");
     const file = data(
@@ -291,17 +367,15 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
           base64: Buffer.from("스티커 자료").toString("base64"),
         },
       }),
+      attachmentSchema,
     );
     assert.equal(file.authorId, "codex-test");
     const read = await client.callTool({
       name: "sticker_read_file",
       arguments: { attachmentId: file.id },
     });
-    const resource = (read.content as any[])[0].resource;
-    assert.equal(
-      Buffer.from(resource.blob, "base64").toString(),
-      "스티커 자료",
-    );
+    const blob = resourceBlob(read);
+    assert.equal(Buffer.from(blob, "base64").toString(), "스티커 자료");
     const updated = data(
       await client.callTool({
         name: "sticker_update_issue",
@@ -311,6 +385,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
           status: "waiting",
         },
       }),
+      issueSchema,
     );
     assert.equal(updated.status, "waiting");
     const conflict = await client.callTool({
@@ -322,7 +397,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
       },
     });
     assert.equal(conflict.isError, true);
-    assert.equal(data(conflict).status, 409);
+    assert.equal(data(conflict, toolErrorSchema).status, 409);
     const detail = app.store.getIssue(owner, issue.id);
     assert.equal(detail.issue.status, "waiting");
     assert.ok(detail.activity.every((a) => a.authorId === "codex-test"));
@@ -344,7 +419,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
           true,
           JSON.stringify(result).slice(0, 1000),
         );
-        const attachment = data(result);
+        const attachment = data(result, attachmentSchema);
         assert.equal(attachment.size, large.length);
         const downloaded = await client.callTool({
           name: "sticker_read_file",
@@ -352,7 +427,7 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
         });
         assert.notEqual(downloaded.isError, true);
         assert.deepEqual(
-          Buffer.from((downloaded.content as any[])[0].resource.blob, "base64"),
+          Buffer.from(resourceBlob(downloaded), "base64"),
           large,
         );
         for (const base64 of ["AAAA=", "AA=A", "AA A", "!!!="]) {
@@ -374,13 +449,42 @@ test("MCP and browser API share real persistence, scopes, revisions and private 
           message: "승인 대기",
         },
       }),
+      reportSchema,
     );
     assert.equal(report.agentId, "codex-test");
     assert.equal(report.stale, false);
   } finally {
     await client.close();
-    await new Promise<void>((resolve) => http.close(() => resolve()));
+    await new Promise<void>((resolve) =>
+      http.close(() => {
+        resolve();
+      }),
+    );
     app.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+void test("malformed upstream errors preserve HTTP status and never expose arbitrary error values", async () => {
+  const api = await fixture((_req, res) => {
+    res.statusCode = 403;
+    res.end("null");
+  });
+  const { client, transport } = connect(api.url);
+  try {
+    await client.connect(transport);
+    const result = await client.callTool({
+      name: "sticker_update_issue",
+      arguments: { issueId: "fixture", revision: 1, title: "검증" },
+    });
+    assert.equal(result.isError, true);
+    assert.deepEqual(data(result, toolErrorSchema), {
+      status: 403,
+      code: "api_error",
+      error: "API HTTP 403",
+    });
+  } finally {
+    await client.close();
+    await api.close();
   }
 });

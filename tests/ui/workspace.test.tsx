@@ -43,13 +43,18 @@ async function fixture() {
   });
   const server = instance.app.listen(0, "127.0.0.1");
   await new Promise<void>((r) => server.once("listening", r));
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const base = `http://127.0.0.1:${String((server.address() as { port: number }).port)}`;
   let cookie = "";
   globalThis.fetch = async (
     input: RequestInfo | URL,
     init: RequestInit = {},
   ) => {
-    const path = typeof input === "string" ? input : input.toString();
+    const path =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
     const headers = new Headers(init.headers);
     if (cookie) headers.set("cookie", cookie);
     if (init.method && !["GET", "HEAD"].includes(init.method))
@@ -69,7 +74,12 @@ async function fixture() {
       cleanup();
       server.closeAllConnections();
       globalThis.fetch = nativeFetch;
-      await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+      await new Promise<void>((r, j) =>
+        server.close((e) => {
+          if (e) j(e);
+          else r();
+        }),
+      );
       instance.close();
       rmSync(dataDir, { recursive: true, force: true });
     },
@@ -84,7 +94,7 @@ async function fixture() {
     },
   };
 }
-test("DOM + real API: login, project/issue persistence, comments, links, status and cancel", async () => {
+void test("DOM + real API: login, project/issue persistence, comments, links, status and cancel", async () => {
   const f = await fixture();
   try {
     await f.login();
@@ -132,12 +142,12 @@ test("DOM + real API: login, project/issue persistence, comments, links, status 
     await f.click("변경 저장");
     await screen.findByText("구현 완료, 아직 종료 전이에요");
     await f.click("상세 닫기");
-    await waitFor(() =>
+    await waitFor(() => {
       assert.equal(
         screen.queryByRole("dialog", { name: "이슈 상세" }) === null,
         true,
-      ),
-    );
+      );
+    });
     await f.click("리스트");
     assert.ok(
       await screen.findByRole("button", { name: /UIT-1.*첫 번째 실제 스티커/ }),
@@ -149,7 +159,7 @@ test("DOM + real API: login, project/issue persistence, comments, links, status 
     await f.click("보드");
     await f.click("할 일 이슈 추가");
     assert.equal(
-      (screen.getByLabelText("상태") as HTMLSelectElement).value,
+      screen.getByLabelText<HTMLSelectElement>("상태").value,
       "ready",
     );
     await f.click("취소");
@@ -171,7 +181,7 @@ test("DOM + real API: login, project/issue persistence, comments, links, status 
     assert.equal(detail.comments.length, 1);
     assert.equal(detail.attachments.length, 1);
     // A remount is a fresh application load and must retain server data and hash routing.
-    await act(async () => {
+    act(() => {
       dom.window.location.hash = `project=${saved.projects[0].id}&issue=${saved.issues[0].id}`;
     });
     cleanup();
@@ -185,7 +195,7 @@ test("DOM + real API: login, project/issue persistence, comments, links, status 
     await f.close();
   }
 });
-test("DOM + real API: wrong password, Escape focus return, version creation/edit/deletion and truthful report empty state", async () => {
+void test("DOM + real API: wrong password, Escape focus return, version creation/edit/deletion and truthful report empty state", async () => {
   const f = await fixture();
   try {
     await screen.findByLabelText("소유자 비밀번호");
@@ -226,12 +236,12 @@ test("DOM + real API: wrong password, Escape focus return, version creation/edit
     await screen.findByText("배포됨", {});
     await f.click("v1.0 버전 삭제");
     await f.click("삭제하기");
-    await waitFor(() =>
+    await waitFor(() => {
       assert.equal(
         screen.queryByRole("heading", { name: "v1.0" }) === null,
         true,
-      ),
-    );
+      );
+    });
     await f.click("에이전트 기록");
     await screen.findByText("상태 보고는 실행 증명이 아니에요.");
     assert.ok(screen.getByText(/아직 전달된 상태 보고가 없어요/));
@@ -241,7 +251,7 @@ test("DOM + real API: wrong password, Escape focus return, version creation/edit
     await f.close();
   }
 });
-test("DOM + real API: conflicting issue edits preserve drafts and require review before retry", async () => {
+void test("DOM + real API: conflicting issue edits preserve drafts and require review before retry", async () => {
   const f = await fixture();
   try {
     const owner = {
@@ -271,7 +281,7 @@ test("DOM + real API: conflicting issue edits preserve drafts and require review
         "button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]",
       ),
     );
-    await act(async () => {
+    act(() => {
       targets[0].focus();
     });
     await f.user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -288,12 +298,12 @@ test("DOM + real API: conflicting issue edits preserve drafts and require review
     );
     const first = within(panel).getByRole("button", { name: "상세 닫기" });
     await f.user.click(first);
-    await waitFor(() =>
+    await waitFor(() => {
       assert.equal(
         screen.queryByRole("dialog", { name: "이슈 상세" }) === null,
         true,
-      ),
-    );
+      );
+    });
     await f.user.click(
       screen.getByRole("button", { name: /CON-1.*원래 제목/ }),
     );
@@ -308,7 +318,7 @@ test("DOM + real API: conflicting issue edits preserve drafts and require review
     await f.click("변경 저장");
     await screen.findByRole("alert");
     assert.equal(
-      (screen.getByLabelText("이슈 제목") as HTMLInputElement).value,
+      screen.getByLabelText<HTMLInputElement>("이슈 제목").value,
       "내 초안 제목",
     );
     await f.click("최신 내용 확인");
@@ -324,7 +334,7 @@ test("DOM + real API: conflicting issue edits preserve drafts and require review
     await f.close();
   }
 });
-test("nested issue/editor teardown restores the original body overflow", async () => {
+void test("nested issue/editor teardown restores the original body overflow", async () => {
   for (const initialOverflow of ["", "auto"]) {
     const f = await fixture();
     try {
@@ -359,5 +369,252 @@ test("nested issue/editor teardown restores the original body overflow", async (
       await f.close();
       document.body.style.overflow = "";
     }
+  }
+});
+
+void test("project navigation clears all filters and keyed issue navigation resets drafts", async () => {
+  const f = await fixture();
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const first = f.instance.store.createProject(owner, {
+      name: "첫 공간",
+      key: "ONE",
+    });
+    const second = f.instance.store.createProject(owner, {
+      name: "둘째 공간",
+      key: "TWO",
+    });
+    const one = f.instance.store.createIssue(owner, {
+      projectId: first.id,
+      title: "첫 상세",
+      status: "ready",
+      assignee: "나",
+    });
+    const two = f.instance.store.createIssue(owner, {
+      projectId: second.id,
+      title: "둘째 상세",
+      status: "done",
+    });
+    await f.login();
+    await f.user.click(screen.getByRole("button", { name: /^첫 공간/ }));
+    await screen.findByRole("heading", { name: "첫 공간" });
+    await f.user.type(screen.getByLabelText("이슈 검색"), "첫");
+    await f.user.selectOptions(screen.getByLabelText("상태 필터"), "ready");
+    await f.user.selectOptions(screen.getByLabelText("우선순위 필터"), "none");
+    await f.user.selectOptions(screen.getByLabelText("담당자 필터"), "나");
+    await f.user.click(screen.getByRole("button", { name: /^둘째 공간/ }));
+    await screen.findByRole("heading", { name: "둘째 공간" });
+    for (const label of [
+      "이슈 검색",
+      "상태 필터",
+      "우선순위 필터",
+      "담당자 필터",
+    ]) {
+      assert.equal(
+        screen.getByLabelText<HTMLInputElement | HTMLSelectElement>(label)
+          .value,
+        "",
+      );
+    }
+    assert.ok(screen.getByRole("button", { name: /TWO-1.*둘째 상세/ }));
+    act(() => {
+      dom.window.location.hash = `project=${first.id}&issue=${one.id}`;
+    });
+    await screen.findByRole("heading", { name: "첫 상세", level: 2 });
+    await f.user.type(screen.getByLabelText("댓글 작성"), "저장하지 않은 초안");
+    act(() => {
+      dom.window.location.hash = `project=${second.id}&issue=${two.id}`;
+    });
+    await screen.findByRole("heading", { name: "둘째 상세", level: 2 });
+    assert.equal(
+      screen.queryByRole("heading", { name: "첫 상세", level: 2 }),
+      null,
+    );
+    assert.equal(
+      screen.getByLabelText<HTMLTextAreaElement>("댓글 작성").value,
+      "",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+void test("modal rerenders use the latest close callback without moving focus", async () => {
+  const { Modal } = await import("../../client/components.js");
+  const trigger = document.createElement("button");
+  document.body.append(trigger);
+  trigger.focus();
+  let previousCalls = 0;
+  let latestCalls = 0;
+  const view = render(
+    <Modal
+      title="초점 검증"
+      onClose={() => {
+        previousCalls++;
+      }}
+    >
+      <input aria-label="초점 입력" />
+    </Modal>,
+  );
+  try {
+    const input = screen.getByLabelText("초점 입력");
+    act(() => {
+      input.focus();
+    });
+    assert.ok(document.activeElement === input);
+    view.rerender(
+      <Modal
+        title="초점 검증"
+        onClose={() => {
+          latestCalls++;
+        }}
+      >
+        <input aria-label="초점 입력" />
+      </Modal>,
+    );
+    assert.ok(document.activeElement === input);
+    await userEvent
+      .setup({ document: dom.window.document })
+      .keyboard("{Escape}");
+    assert.equal(previousCalls, 0);
+    assert.equal(latestCalls, 1);
+    view.unmount();
+    assert.ok(document.activeElement === trigger);
+  } finally {
+    cleanup();
+    trigger.remove();
+  }
+});
+
+void test("agent freshness is reevaluated on workspace refresh", async (t) => {
+  const f = await fixture();
+  const now = Date.now();
+  let clock = now;
+  t.mock.method(Date, "now", () => clock);
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const project = f.instance.store.createProject(owner, {
+      name: "보고 공간",
+      key: "RPT",
+    });
+    f.instance.store.reportAgent(
+      {
+        id: "fixture",
+        name: "검증 에이전트",
+        role: "agent",
+        canWrite: true,
+        projectIds: null,
+      },
+      { projectId: project.id, state: "working", message: "자기 보고" },
+    );
+    await f.login();
+    await f.click("에이전트 기록");
+    await screen.findByText("최근 자기 보고");
+    clock = now + 360_000;
+    await f.click("작업 공간 새로고침");
+    await screen.findByText("오래된 보고");
+  } finally {
+    await f.close();
+  }
+});
+
+void test("editor awaits save callbacks and reports their rejection in the form", async (t) => {
+  const { ProjectEditor } = await import("../../client/editors.js");
+  t.mock.method(globalThis, "fetch", () =>
+    Promise.resolve(
+      Response.json({
+        id: "fixture",
+        key: "CB",
+        name: "콜백 검증",
+        description: "",
+        color: "#d7f45b",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      }),
+    ),
+  );
+  render(
+    <ProjectEditor
+      onClose={() => {
+        assert.fail("Unexpected close");
+      }}
+      onSaved={() => Promise.reject(new Error("저장 후 갱신 실패"))}
+    />,
+  );
+  try {
+    const user = userEvent.setup({ document: dom.window.document });
+    await user.type(screen.getByLabelText("프로젝트 이름"), "콜백 검증");
+    await user.type(screen.getByLabelText("프로젝트 키"), "CB");
+    await user.click(screen.getByRole("button", { name: "프로젝트 만들기" }));
+    assert.match(
+      (await screen.findByRole("alert")).textContent,
+      /저장 후 갱신 실패/,
+    );
+    assert.equal(
+      screen.getByLabelText<HTMLInputElement>("프로젝트 이름").value,
+      "콜백 검증",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+void test("cached agent reports age when workspace refresh fails", async (t) => {
+  const f = await fixture();
+  const now = Date.now();
+  let clock = now;
+  t.mock.method(Date, "now", () => clock);
+  try {
+    const owner = {
+      id: "owner",
+      name: "나",
+      role: "owner" as const,
+      canWrite: true,
+      projectIds: null,
+    };
+    const project = f.instance.store.createProject(owner, {
+      name: "오프라인 보고",
+      key: "OFF",
+    });
+    f.instance.store.reportAgent(
+      {
+        id: "fixture",
+        name: "검증 에이전트",
+        role: "agent",
+        canWrite: true,
+        projectIds: null,
+      },
+      { projectId: project.id, state: "working", message: "캐시된 자기 보고" },
+    );
+    await f.login();
+    await f.click("에이전트 기록");
+    await screen.findByText("최근 자기 보고");
+    clock = now + 360_000;
+    t.mock.method(globalThis, "fetch", () =>
+      Promise.reject(new Error("오프라인 새로고침 실패")),
+    );
+    await f.click("작업 공간 새로고침");
+    await screen.findByText("오프라인 새로고침 실패");
+    assert.ok(
+      screen.queryByText("최근 자기 보고") === null,
+      "A failed refresh must not keep an old working report marked recent.",
+    );
+    assert.ok(screen.getByText("오래된 보고"));
+    assert.ok(screen.getByText("캐시된 자기 보고"));
+  } finally {
+    t.mock.restoreAll();
+    await f.close();
   }
 });

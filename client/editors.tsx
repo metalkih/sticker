@@ -1,11 +1,10 @@
+import {
+  projectSchema,
+  issueSchema,
+  issueDetailSchema,
+} from "../server/response-schemas.js";
 import React, { useState } from "react";
-import type {
-  Bootstrap,
-  Issue,
-  IssueDetail,
-  Project,
-  Version,
-} from "../server/types.js";
+import type { Bootstrap, Issue, Project, Version } from "../server/types.js";
 import { STATUSES } from "../server/types.js";
 import { api, json, errorText, ApiError } from "./api.js";
 import { Modal, Field, ErrorNotice } from "./components.js";
@@ -25,7 +24,7 @@ export function ProjectEditor({
 }: {
   project?: Project;
   onClose: () => void;
-  onSaved: (project: Project) => void;
+  onSaved: (project: Project) => void | Promise<void>;
 }) {
   const [name, setName] = useState(project?.name || "");
   const [key, setKey] = useState(project?.key || "");
@@ -33,20 +32,21 @@ export function ProjectEditor({
   const [color, setColor] = useState(project?.color || colors[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      const result = await api<Project>(
+      const result = await api(
         project ? `/projects/${project.id}` : "/projects",
         {
           method: project ? "PATCH" : "POST",
           body: json({ name, key, description, color }),
         },
+        projectSchema,
       );
-      onSaved(result);
+      await onSaved(result);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -58,7 +58,12 @@ export function ProjectEditor({
       title={project ? "프로젝트 편집" : "새로운 프로젝트"}
       onClose={onClose}
     >
-      <form onSubmit={submit} className="editor-form">
+      <form
+        onSubmit={(e) => {
+          void submit(e);
+        }}
+        className="editor-form"
+      >
         <p className="form-intro">
           흩어진 아이디어를 하나의 작업 공간에 붙여 보세요.
         </p>
@@ -67,7 +72,9 @@ export function ProjectEditor({
             required
             maxLength={120}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+            }}
             placeholder="어떤 프로젝트인가요?"
           />
         </Field>
@@ -77,9 +84,9 @@ export function ProjectEditor({
             pattern="[A-Z][A-Z0-9]{1,7}"
             maxLength={8}
             value={key}
-            onChange={(e) =>
-              setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
-            }
+            onChange={(e) => {
+              setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+            }}
             placeholder="예: STK"
           />
           <small>영문 대문자로 시작하는 2–8자. 이슈 번호에 사용해요.</small>
@@ -87,7 +94,9 @@ export function ProjectEditor({
         <Field label="프로젝트 설명">
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+            }}
             rows={3}
             maxLength={10000}
             placeholder="목표와 맥락을 짧게 남겨 주세요."
@@ -102,7 +111,9 @@ export function ProjectEditor({
                 type="button"
                 style={{ background: c }}
                 className={color === c ? "selected" : ""}
-                onClick={() => setColor(c)}
+                onClick={() => {
+                  setColor(c);
+                }}
                 aria-label={`${c} 색상`}
                 aria-pressed={color === c}
               >
@@ -135,7 +146,7 @@ export function VersionEditor({
   data: Bootstrap;
   projectId?: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
 }) {
   const [project, setProject] = useState(
     version?.projectId || projectId || data.projects[0]?.id || "",
@@ -148,7 +159,7 @@ export function VersionEditor({
   const [dueDate, setDueDate] = useState(version?.dueDate?.slice(0, 10) || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
@@ -164,7 +175,7 @@ export function VersionEditor({
           dueDate: dueDate || null,
         }),
       });
-      onSaved();
+      await onSaved();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -173,12 +184,19 @@ export function VersionEditor({
   }
   return (
     <Modal title={version ? "버전 편집" : "새로운 버전"} onClose={onClose}>
-      <form onSubmit={submit} className="editor-form">
+      <form
+        onSubmit={(e) => {
+          void submit(e);
+        }}
+        className="editor-form"
+      >
         <div className="form-grid">
           <Field label="프로젝트">
             <select
               value={project}
-              onChange={(e) => setProject(e.target.value)}
+              onChange={(e) => {
+                setProject(e.target.value);
+              }}
               disabled={!!version}
               required
             >
@@ -194,14 +212,18 @@ export function VersionEditor({
               required
               maxLength={100}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+              }}
               placeholder="예: v1.0.0"
             />
           </Field>
           <Field label="버전 상태">
             <select
               value={state}
-              onChange={(e) => setState(e.target.value as Version["state"])}
+              onChange={(e) => {
+                setState(e.target.value as Version["state"]);
+              }}
             >
               {Object.entries(versionStateNames).map(([v, n]) => (
                 <option value={v} key={v}>
@@ -214,14 +236,18 @@ export function VersionEditor({
             <input
               type="date"
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
+              onChange={(e) => {
+                setDueDate(e.target.value);
+              }}
             />
           </Field>
         </div>
         <Field label="버전 설명">
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+            }}
             rows={4}
             maxLength={10000}
             placeholder="이번 버전에서 달라지는 점"
@@ -253,7 +279,7 @@ export function IssueEditor({
   projectId?: string;
   initialStatus?: Issue["status"];
   onClose: () => void;
-  onSaved: (issue: Issue) => void;
+  onSaved: (issue: Issue) => void | Promise<void>;
 }) {
   const [project, setProject] = useState(
     issue?.projectId || projectId || data.projects[0]?.id || "",
@@ -278,13 +304,13 @@ export function IssueEditor({
   const [latest, setLatest] = useState<Issue | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const versions = data.versions.filter((v) => v.projectId === project);
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy || conflict) return;
     setBusy(true);
     setError("");
     try {
-      const result = await api<Issue>(
+      const result = await api(
         issue ? `/issues/${issue.id}` : "/issues",
         {
           method: issue ? "PATCH" : "POST",
@@ -304,8 +330,9 @@ export function IssueEditor({
             fixedVersionId: fixed || null,
           }),
         },
+        issueSchema,
       );
-      onSaved(result);
+      await onSaved(result);
     } catch (e) {
       setError(errorText(e));
       if (e instanceof ApiError && e.code === "REVISION_CONFLICT") {
@@ -317,7 +344,12 @@ export function IssueEditor({
     }
   }
   const versionSelect = (value: string, set: (v: string) => void) => (
-    <select value={value} onChange={(e) => set(e.target.value)}>
+    <select
+      value={value}
+      onChange={(e) => {
+        set(e.target.value);
+      }}
+    >
       <option value="">지정하지 않음</option>
       {versions.map((v) => (
         <option key={v.id} value={v.id}>
@@ -332,14 +364,21 @@ export function IssueEditor({
       onClose={onClose}
       wide
     >
-      <form onSubmit={submit} className="editor-form">
+      <form
+        onSubmit={(e) => {
+          void submit(e);
+        }}
+        className="editor-form"
+      >
         <Field label="이슈 제목">
           <input
             className="title-input"
             required
             maxLength={300}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+            }}
             placeholder="무엇을 해결할까요?"
           />
         </Field>
@@ -348,7 +387,9 @@ export function IssueEditor({
             rows={5}
             maxLength={50000}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+            }}
             placeholder="해야 할 일, 성공 기준, 참고할 맥락을 남겨 주세요."
           />
         </Field>
@@ -375,7 +416,9 @@ export function IssueEditor({
           <Field label="상태">
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value as Issue["status"])}
+              onChange={(e) => {
+                setStatus(e.target.value as Issue["status"]);
+              }}
             >
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -387,7 +430,9 @@ export function IssueEditor({
           <Field label="우선순위">
             <select
               value={priority}
-              onChange={(e) => setPriority(e.target.value as Issue["priority"])}
+              onChange={(e) => {
+                setPriority(e.target.value as Issue["priority"]);
+              }}
             >
               {Object.entries(priorityNames).map(([v, n]) => (
                 <option key={v} value={v}>
@@ -399,7 +444,9 @@ export function IssueEditor({
           <Field label="담당자">
             <input
               value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
+              onChange={(e) => {
+                setAssignee(e.target.value);
+              }}
               maxLength={120}
               placeholder="나, Codex…"
             />
@@ -424,7 +471,9 @@ export function IssueEditor({
         <Field label="라벨">
           <input
             value={labels}
-            onChange={(e) => setLabels(e.target.value)}
+            onChange={(e) => {
+              setLabels(e.target.value);
+            }}
             placeholder="버그, 디자인, 기능 (쉼표로 구분)"
             maxLength={500}
           />
@@ -441,17 +490,25 @@ export function IssueEditor({
                 type="button"
                 className="button secondary"
                 disabled={reviewing}
-                onClick={async () => {
-                  setReviewing(true);
-                  try {
-                    setLatest(
-                      (await api<IssueDetail>(`/issues/${issue.id}`)).issue,
-                    );
-                  } catch (e) {
-                    setError(errorText(e));
-                  } finally {
-                    setReviewing(false);
-                  }
+                onClick={() => {
+                  void (async () => {
+                    setReviewing(true);
+                    try {
+                      setLatest(
+                        (
+                          await api(
+                            `/issues/${issue.id}`,
+                            undefined,
+                            issueDetailSchema,
+                          )
+                        ).issue,
+                      );
+                    } catch (e) {
+                      setError(errorText(e));
+                    } finally {
+                      setReviewing(false);
+                    }
+                  })();
                 }}
               >
                 {reviewing ? "불러오는 중…" : "최신 내용 확인"}
@@ -539,16 +596,18 @@ export function Confirm({
           <button
             className="button danger"
             disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await onConfirm();
-                onClose();
-              } catch (e) {
-                setError(errorText(e));
-              } finally {
-                setBusy(false);
-              }
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  await onConfirm();
+                  onClose();
+                } catch (e) {
+                  setError(errorText(e));
+                } finally {
+                  setBusy(false);
+                }
+              })();
             }}
           >
             {busy ? "삭제 중…" : "삭제하기"}

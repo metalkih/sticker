@@ -50,7 +50,9 @@ function fixture() {
     dbPath,
     key,
     issue,
-    close: () => rmSync(dir, { recursive: true, force: true }),
+    close: () => {
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 function validate(dir: string) {
@@ -74,7 +76,7 @@ function rejection(dir: string, reason: RegExp) {
   assert.match(result.stderr, reason);
 }
 
-test("validator accepts supported Sticker schema and complete attachments without changing DB bytes", () => {
+void test("validator accepts supported Sticker schema and complete attachments without changing DB bytes", () => {
   const f = fixture();
   try {
     const before = readFileSync(f.dbPath);
@@ -85,7 +87,7 @@ test("validator accepts supported Sticker schema and complete attachments withou
     f.close();
   }
 });
-test("validator rejects zero-byte database rather than treating it as an empty workspace", () => {
+void test("validator rejects zero-byte database rather than treating it as an empty workspace", () => {
   const f = fixture();
   try {
     writeFileSync(f.dbPath, "");
@@ -94,7 +96,7 @@ test("validator rejects zero-byte database rather than treating it as an empty w
     f.close();
   }
 });
-test("validator rejects unrelated SQLite even if it claims supported user_version", () => {
+void test("validator rejects unrelated SQLite even if it claims supported user_version", () => {
   const f = fixture();
   try {
     rmSync(f.dbPath);
@@ -107,7 +109,7 @@ test("validator rejects unrelated SQLite even if it claims supported user_versio
     f.close();
   }
 });
-test("validator rejects future Sticker schema versions", () => {
+void test("validator rejects future Sticker schema versions", () => {
   const f = fixture();
   try {
     changeDb(f.dbPath, "PRAGMA user_version=2;");
@@ -116,7 +118,7 @@ test("validator rejects future Sticker schema versions", () => {
     f.close();
   }
 });
-test("validator rejects missing required Sticker columns", () => {
+void test("validator rejects missing required Sticker columns", () => {
   const f = fixture();
   try {
     changeDb(f.dbPath, "ALTER TABLE comments DROP COLUMN body;");
@@ -125,7 +127,7 @@ test("validator rejects missing required Sticker columns", () => {
     f.close();
   }
 });
-test("validator rejects relational corruption detected by foreign_key_check", () => {
+void test("validator rejects relational corruption detected by foreign_key_check", () => {
   const f = fixture();
   try {
     changeDb(
@@ -137,7 +139,7 @@ test("validator rejects relational corruption detected by foreign_key_check", ()
     f.close();
   }
 });
-test("validator rejects missing and truncated attachment bytes", () => {
+void test("validator rejects missing and truncated attachment bytes", () => {
   const f = fixture();
   try {
     writeFileSync(join(f.dir, "uploads", f.key), "t");
@@ -148,7 +150,7 @@ test("validator rejects missing and truncated attachment bytes", () => {
     f.close();
   }
 });
-test("validator rejects unsafe storage keys and symlink attachment files", () => {
+void test("validator rejects unsafe storage keys and symlink attachment files", () => {
   const f = fixture();
   try {
     rmSync(join(f.dir, "uploads", f.key));
@@ -160,7 +162,7 @@ test("validator rejects unsafe storage keys and symlink attachment files", () =>
     f.close();
   }
 });
-test("validator rejects a symlink database or uploads directory", () => {
+void test("validator rejects a symlink database or uploads directory", () => {
   const f = fixture();
   try {
     const original = readFileSync(f.dbPath);

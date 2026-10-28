@@ -200,7 +200,7 @@ if (
       );
     const result = validateBackup(process.argv[2]);
     process.stdout.write(
-      `Validated Sticker schema ${result.schemaVersion}, ${result.fileCount} file attachments.\n`,
+      `Validated Sticker schema ${String(result.schemaVersion)}, ${String(result.fileCount)} file attachments.\n`,
     );
   } catch (error) {
     process.stderr.write(

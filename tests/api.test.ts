@@ -1,11 +1,28 @@
+import { z } from "zod";
+import { readJson, requiredHeader } from "./helpers.js";
+import {
+  projectSchema,
+  versionSchema,
+  issueSchema,
+  issueDetailSchema,
+  bootstrapSchema,
+  commentSchema,
+  attachmentSchema,
+} from "../server/response-schemas.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createApp } from "../server/app.js";
 import type { AgentConfig } from "../server/auth.js";
+const errorSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+  stack: z.unknown().optional(),
+});
+const commentOrErrorSchema = z.union([commentSchema, errorSchema]);
 const password = "temporary-test-owner-password";
 const token = "ephemeral-test-agent-token-never-persisted";
 const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -19,9 +36,11 @@ async function fixture(agents: AgentConfig[] = []) {
   });
   const server = instance.app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) =>
-    server.once("listening", () => resolve()),
+    server.once("listening", () => {
+      resolve();
+    }),
   );
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const base = `http://127.0.0.1:${String((server.address() as { port: number }).port)}`;
   const call = (path: string, options: RequestInit = {}) =>
     fetch(base + path, options);
   const login = async () => {
@@ -31,7 +50,7 @@ async function fixture(agents: AgentConfig[] = []) {
       body: JSON.stringify({ password }),
     });
     assert.equal(r.status, 200);
-    return r.headers.get("set-cookie")!.split(";")[0];
+    return requiredHeader(r, "set-cookie").split(";")[0];
   };
   const json = (cookie: string, method: string, body?: unknown) => ({
     method,
@@ -49,13 +68,18 @@ async function fixture(agents: AgentConfig[] = []) {
     login,
     json,
     cleanup: async () => {
-      await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+      await new Promise<void>((r, j) =>
+        server.close((e) => {
+          if (e) j(e);
+          else r();
+        }),
+      );
       instance.close();
       rmSync(dataDir, { recursive: true, force: true });
     },
   };
 }
-test("API is private, login is secure, logout invalidates session and foreign-origin writes fail", async () => {
+void test("API is private, login is secure, logout invalidates session and foreign-origin writes fail", async () => {
   const f = await fixture();
   try {
     assert.equal((await f.call("/api/bootstrap")).status, 401);
@@ -65,9 +89,9 @@ test("API is private, login is secure, logout invalidates session and foreign-or
       body: JSON.stringify({ password }),
     });
     assert.equal(r.status, 200);
-    assert.match(r.headers.get("set-cookie")!, /HttpOnly/);
-    assert.match(r.headers.get("set-cookie")!, /SameSite=Strict/);
-    const cookie = r.headers.get("set-cookie")!.split(";")[0];
+    assert.match(requiredHeader(r, "set-cookie"), /HttpOnly/);
+    assert.match(requiredHeader(r, "set-cookie"), /SameSite=Strict/);
+    const cookie = requiredHeader(r, "set-cookie").split(";")[0];
     assert.equal(
       (await f.call("/api/bootstrap", { headers: { cookie } })).status,
       200,
@@ -108,11 +132,11 @@ test("API is private, login is secure, logout invalidates session and foreign-or
     await f.cleanup();
   }
 });
-test("HTTP CRUD persists data and rejects stale issue updates", async () => {
+void test("HTTP CRUD persists data and rejects stale issue updates", async () => {
   const f = await fixture();
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", {
@@ -120,17 +144,19 @@ test("HTTP CRUD persists data and rejects stale issue updates", async () => {
           key: "TEST",
           color: "#c2f36b",
         }),
-      )
-    ).json();
+      ),
+      projectSchema,
+    );
     assert.ok(p.id);
-    const v = await (
+    const v = await readJson(
       await f.call(
         "/api/versions",
         f.json(cookie, "POST", { projectId: p.id, name: "v1" }),
-      )
-    ).json();
+      ),
+      versionSchema,
+    );
     assert.ok(v.id);
-    const i = await (
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", {
@@ -138,8 +164,9 @@ test("HTTP CRUD persists data and rejects stale issue updates", async () => {
           title: "실제 저장되는 이슈",
           targetVersionId: v.id,
         }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     assert.ok(i.id);
     const updated = await f.call(
       `/api/issues/${i.id}`,
@@ -158,21 +185,23 @@ test("HTTP CRUD persists data and rejects stale issue updates", async () => {
       ).status,
       409,
     );
-    const detail = await (
-      await f.call(`/api/issues/${i.id}`, { headers: { cookie } })
-    ).json();
+    const detail = await readJson(
+      await f.call(`/api/issues/${i.id}`, { headers: { cookie } }),
+      issueDetailSchema,
+    );
     assert.equal(detail.issue.status, "waiting");
     assert.ok(detail.activity.length >= 2);
-    const b = await (
-      await f.call("/api/bootstrap", { headers: { cookie } })
-    ).json();
+    const b = await readJson(
+      await f.call("/api/bootstrap", { headers: { cookie } }),
+      bootstrapSchema,
+    );
     assert.equal(b.issues.length, 1);
     assert.ok(readdirSync(f.dataDir).includes("sticker.sqlite"));
   } finally {
     await f.cleanup();
   }
 });
-test("agent writes retain configured author, cannot escape scopes or close issues", async () => {
+void test("agent writes retain configured author, cannot escape scopes or close issues", async () => {
   const f = await fixture([
     {
       id: "reader",
@@ -184,20 +213,25 @@ test("agent writes retain configured author, cannot escape scopes or close issue
   ]);
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", { name: "Private", key: "PVT" }),
-      )
-    ).json();
-    const i = await (
+      ),
+      projectSchema,
+    );
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", { projectId: p.id, title: "private" }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     const auth = { authorization: `Bearer ${token}` };
-    const b = await (await f.call("/api/bootstrap", { headers: auth })).json();
+    const b = await readJson(
+      await f.call("/api/bootstrap", { headers: auth }),
+      bootstrapSchema,
+    );
     assert.deepEqual(b.projects, []);
     assert.deepEqual(b.issues, []);
     assert.ok(
@@ -229,23 +263,25 @@ test("agent writes retain configured author, cannot escape scopes or close issue
   ]);
   try {
     const cookie = await w.login();
-    const p = await (
+    const p = await readJson(
       await w.call(
         "/api/projects",
         w.json(cookie, "POST", { name: "Agent test", key: "AGT" }),
-      )
-    ).json();
+      ),
+      projectSchema,
+    );
     const headers = {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     };
-    const i = await (
+    const i = await readJson(
       await w.call("/api/issues", {
         method: "POST",
         headers,
         body: JSON.stringify({ projectId: p.id, title: "agent issue" }),
-      })
-    ).json();
+      }),
+      issueSchema,
+    );
     assert.ok(i.id);
     assert.equal(
       (
@@ -257,7 +293,7 @@ test("agent writes retain configured author, cannot escape scopes or close issue
       ).status,
       403,
     );
-    const c = await (
+    const c = await readJson(
       await w.call(`/api/issues/${i.id}/comments`, {
         method: "POST",
         headers,
@@ -266,39 +302,43 @@ test("agent writes retain configured author, cannot escape scopes or close issue
           authorId: "owner",
           authorName: "Imposter",
         }),
-      })
-    ).json();
+      }),
+      commentOrErrorSchema,
+    );
     // Strict unknown-field rejection or authoritative attribution is acceptable; never impersonation.
-    if (c.id) assert.equal(c.authorId, "writer");
+    if ("id" in c) assert.equal(c.authorId, "writer");
     else assert.ok(c.error);
-    const c2 = await (
+    const c2 = await readJson(
       await w.call(`/api/issues/${i.id}/comments`, {
         method: "POST",
         headers,
         body: JSON.stringify({ body: "작업 결과" }),
-      })
-    ).json();
+      }),
+      commentSchema,
+    );
     assert.equal(c2.authorId, "writer");
   } finally {
     await w.cleanup();
   }
 });
-test("uploads and links are private, safe downloads; bytes survive a later authenticated fetch", async () => {
+void test("uploads and links are private, safe downloads; bytes survive a later authenticated fetch", async () => {
   const f = await fixture();
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", { name: "Files", key: "FIL" }),
-      )
-    ).json();
-    const i = await (
+      ),
+      projectSchema,
+    );
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", { projectId: p.id, title: "attachments" }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     const form = new FormData();
     form.append(
       "file",
@@ -310,14 +350,14 @@ test("uploads and links are private, safe downloads; bytes survive a later authe
       headers: { cookie, origin: "http://localhost:8787" },
       body: form,
     });
-    const a = await upload.json();
+    const a = await readJson(upload, attachmentSchema);
     assert.equal(upload.status, 201, JSON.stringify(a));
     assert.equal((await f.call(`/api/attachments/${a.id}/file`)).status, 401);
     const file = await f.call(`/api/attachments/${a.id}/file?preview=1`, {
       headers: { cookie },
     });
     assert.equal(file.status, 200);
-    assert.match(file.headers.get("content-disposition")!, /^attachment;/);
+    assert.match(requiredHeader(file, "content-disposition"), /^attachment;/);
     assert.equal(file.headers.get("x-content-type-options"), "nosniff");
     assert.equal(await file.text(), "<script>alert(1)</script>");
     assert.equal(
@@ -352,7 +392,7 @@ test("uploads and links are private, safe downloads; bytes survive a later authe
     await f.cleanup();
   }
 });
-test("malformed JSON and unknown routes return bounded JSON errors, not internals", async () => {
+void test("malformed JSON and unknown routes return bounded JSON errors, not internals", async () => {
   const f = await fixture();
   try {
     const bad = await f.call("/api/session", {
@@ -361,7 +401,7 @@ test("malformed JSON and unknown routes return bounded JSON errors, not internal
       body: "{oops",
     });
     assert.equal(bad.status, 400);
-    const body = await bad.json();
+    const body = await readJson(bad, errorSchema);
     assert.ok(body.error);
     assert.equal(body.stack, undefined);
     assert.equal(
@@ -373,22 +413,24 @@ test("malformed JSON and unknown routes return bounded JSON errors, not internal
     await f.cleanup();
   }
 });
-test("Korean filenames remain readable and only detected raster images preview inline", async () => {
+void test("Korean filenames remain readable and only detected raster images preview inline", async () => {
   const f = await fixture();
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", { name: "이미지", key: "IMG" }),
-      )
-    ).json();
-    const i = await (
+      ),
+      projectSchema,
+    );
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", { projectId: p.id, title: "preview" }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     const form = new FormData();
     form.append(
       "file",
@@ -409,17 +451,17 @@ test("Korean filenames remain readable and only detected raster images preview i
       body: form,
     });
     assert.equal(uploaded.status, 201);
-    const a = await uploaded.json();
+    const a = await readJson(uploaded, attachmentSchema);
     assert.equal(a.name, "테스트 이미지.png");
     const preview = await f.call(`/api/attachments/${a.id}/file?preview=1`, {
       headers: { cookie },
     });
     assert.equal(preview.headers.get("content-type"), "image/png");
-    assert.match(preview.headers.get("content-disposition")!, /^inline;/);
+    assert.match(requiredHeader(preview, "content-disposition"), /^inline;/);
     const normal = await f.call(`/api/attachments/${a.id}/file`, {
       headers: { cookie },
     });
-    assert.match(normal.headers.get("content-disposition")!, /^attachment;/);
+    assert.match(requiredHeader(normal, "content-disposition"), /^attachment;/);
     const oversized = new FormData();
     oversized.append(
       "file",
@@ -446,22 +488,24 @@ test("Korean filenames remain readable and only detected raster images preview i
     await f.cleanup();
   }
 });
-test("malformed upload and unsupported JSON charset are client errors, not server errors", async () => {
+void test("malformed upload and unsupported JSON charset are client errors, not server errors", async () => {
   const f = await fixture();
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", { name: "Malformed requests", key: "BAD" }),
-      )
-    ).json();
-    const i = await (
+      ),
+      projectSchema,
+    );
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", { projectId: p.id, title: "bad file requests" }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     const headers = {
       cookie,
       origin: "http://localhost:8787",
@@ -505,22 +549,24 @@ test("malformed upload and unsupported JSON charset are client errors, not serve
     await f.cleanup();
   }
 });
-test("RFC5987 filenames are not decoded twice", async () => {
+void test("RFC5987 filenames are not decoded twice", async () => {
   const f = await fixture();
   try {
     const cookie = await f.login();
-    const p = await (
+    const p = await readJson(
       await f.call(
         "/api/projects",
         f.json(cookie, "POST", { name: "Unicode", key: "UNI" }),
-      )
-    ).json();
-    const i = await (
+      ),
+      projectSchema,
+    );
+    const i = await readJson(
       await f.call(
         "/api/issues",
         f.json(cookie, "POST", { projectId: p.id, title: "filename star" }),
-      )
-    ).json();
+      ),
+      issueSchema,
+    );
     for (const name of ["한글.txt", "Ā.txt", "Â©.txt"]) {
       const body = `--boundary\r\nContent-Disposition: form-data; name="file"; filename*=UTF-8''${encodeURIComponent(name)}\r\nContent-Type: text/plain\r\n\r\nhello\r\n--boundary--\r\n`;
       const r = await f.call(`/api/issues/${i.id}/attachments`, {
@@ -533,7 +579,7 @@ test("RFC5987 filenames are not decoded twice", async () => {
         body,
       });
       assert.equal(r.status, 201);
-      assert.equal((await r.json()).name, name);
+      assert.equal((await readJson(r, attachmentSchema)).name, name);
     }
   } finally {
     await f.cleanup();

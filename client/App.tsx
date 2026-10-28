@@ -1,3 +1,4 @@
+import { bootstrapSchema } from "../server/response-schemas.js";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Bootstrap,
@@ -23,7 +24,6 @@ import {
   priorityNames,
   versionStateNames,
   dateText,
-  relativeTime,
 } from "./format.js";
 type Route = { section: string; project: string; issue: string };
 const readRoute = (): Route => {
@@ -68,40 +68,55 @@ export default function App() {
     name: string;
   } | null>(null);
   const [notice, setNotice] = useState("");
-  const refresh = useCallback(async () => {
-    try {
-      const next = await api<Bootstrap>("/bootstrap");
-      setData(next);
-      setAuthenticated(true);
-      setError("");
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        setAuthenticated(false);
-        setData(null);
-      } else {
-        setError(errorText(e));
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [reportTime, setReportTime] = useState(Date.now);
+  const [filterProject, setFilterProject] = useState(route.project);
+  const refresh = useCallback(
+    () =>
+      api("/bootstrap", undefined, bootstrapSchema)
+        .then(
+          (next) => {
+            setData(next);
+            setAuthenticated(true);
+            setError("");
+          },
+          (e: unknown) => {
+            if (e instanceof ApiError && e.status === 401) {
+              setAuthenticated(false);
+              setData(null);
+            } else setError(errorText(e));
+          },
+        )
+        .finally(() => {
+          setReportTime(Date.now());
+          setLoading(false);
+        }),
+    [],
+  );
   useEffect(() => {
     void refresh();
     const timer = setInterval(() => void refresh(), 30_000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+    };
   }, [refresh]);
   useEffect(() => {
-    const update = () => setRoute(readRoute());
+    const update = () => {
+      setRoute(readRoute());
+    };
     window.addEventListener("hashchange", update);
-    return () => window.removeEventListener("hashchange", update);
+    return () => {
+      window.removeEventListener("hashchange", update);
+    };
   }, []);
-  useEffect(() => {
+  if (filterProject !== route.project) {
+    setFilterProject(route.project);
     setStatus("");
     setPriority("");
     setAssignee("");
     setVersionFilter("");
     setSearch("");
-  }, [route.project]);
+  }
+
   useEffect(() => {
     if (
       data &&
@@ -112,7 +127,8 @@ export default function App() {
   }, [data, route.project]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      const tag = (event.target as HTMLElement).tagName;
+      const tag =
+        event.target instanceof HTMLElement ? event.target.tagName : "";
       if (
         event.key === "/" &&
         !event.ctrlKey &&
@@ -130,19 +146,30 @@ export default function App() {
       }
     };
     document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("keydown", key);
+    };
   }, []);
   useEffect(() => {
     if (!notice) return;
-    const timeout = setTimeout(() => setNotice(""), 3500);
-    return () => clearTimeout(timeout);
+    const timeout = setTimeout(() => {
+      setNotice("");
+    }, 3500);
+    return () => {
+      clearTimeout(timeout);
+    };
   }, [notice]);
-  const closeIssue = useCallback(() => navigate({ issue: "" }), []);
+  const closeIssue = useCallback(() => {
+    navigate({ issue: "" });
+  }, []);
   const project = data?.projects.find((p) => p.id === route.project);
-  const projectIssues =
-    data?.issues.filter(
-      (i) => !route.project || i.projectId === route.project,
-    ) || [];
+  const projectIssues = useMemo(
+    () =>
+      data?.issues.filter(
+        (i) => !route.project || i.projectId === route.project,
+      ) || [],
+    [data, route.project],
+  );
   const filtered = useMemo(
     () =>
       projectIssues.filter(
@@ -246,9 +273,9 @@ export default function App() {
             className={
               route.section === "issues" && !route.project ? "active" : ""
             }
-            onClick={() =>
-              navigate({ section: "issues", project: "", issue: "" })
-            }
+            onClick={() => {
+              navigate({ section: "issues", project: "", issue: "" });
+            }}
           >
             <Icon name="grid" />
             <span>내 작업 공간</span>
@@ -256,23 +283,27 @@ export default function App() {
           </button>
           <button
             className={route.section === "projects" ? "active" : ""}
-            onClick={() =>
-              navigate({ section: "projects", project: "", issue: "" })
-            }
+            onClick={() => {
+              navigate({ section: "projects", project: "", issue: "" });
+            }}
           >
             <Icon name="folder" />
             <span>프로젝트</span>
           </button>
           <button
             className={route.section === "versions" ? "active" : ""}
-            onClick={() => navigate({ section: "versions", issue: "" })}
+            onClick={() => {
+              navigate({ section: "versions", issue: "" });
+            }}
           >
             <Icon name="version" />
             <span>버전과 릴리스</span>
           </button>
           <button
             className={route.section === "agents" ? "active" : ""}
-            onClick={() => navigate({ section: "agents", issue: "" })}
+            onClick={() => {
+              navigate({ section: "agents", issue: "" });
+            }}
           >
             <Icon name="agent" />
             <span>에이전트 기록</span>
@@ -283,7 +314,9 @@ export default function App() {
           <button
             className="icon-button"
             aria-label="새 프로젝트"
-            onClick={() => setProjectEditor("new")}
+            onClick={() => {
+              setProjectEditor("new");
+            }}
           >
             <Icon name="plus" size={16} />
           </button>
@@ -293,9 +326,9 @@ export default function App() {
             <button
               className={route.project === p.id ? "active" : ""}
               key={p.id}
-              onClick={() =>
-                navigate({ section: "issues", project: p.id, issue: "" })
-              }
+              onClick={() => {
+                navigate({ section: "issues", project: p.id, issue: "" });
+              }}
             >
               <span className="project-dot" style={{ background: p.color }} />
               <span>{p.name}</span>
@@ -410,7 +443,9 @@ export default function App() {
               {project && route.section === "issues" && (
                 <button
                   className="button secondary"
-                  onClick={() => setProjectEditor(project)}
+                  onClick={() => {
+                    setProjectEditor(project);
+                  }}
                   aria-label="프로젝트 편집"
                 >
                   <Icon name="edit" size={15} />
@@ -421,7 +456,9 @@ export default function App() {
                 className="button primary"
                 onClick={
                   route.section === "projects"
-                    ? () => setProjectEditor("new")
+                    ? () => {
+                        setProjectEditor("new");
+                      }
                     : route.section === "versions"
                       ? newVersion
                       : newIssue
@@ -490,7 +527,9 @@ export default function App() {
                     <button
                       className={mode === "board" ? "active" : ""}
                       aria-pressed={mode === "board"}
-                      onClick={() => setMode("board")}
+                      onClick={() => {
+                        setMode("board");
+                      }}
                     >
                       <Icon name="board" size={15} />
                       보드
@@ -498,7 +537,9 @@ export default function App() {
                     <button
                       className={mode === "list" ? "active" : ""}
                       aria-pressed={mode === "list"}
-                      onClick={() => setMode("list")}
+                      onClick={() => {
+                        setMode("list");
+                      }}
                     >
                       <Icon name="list" size={15} />
                       리스트
@@ -512,14 +553,18 @@ export default function App() {
                       aria-label="이슈 검색"
                       placeholder="이슈 검색…"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                      }}
                     />
                     <kbd>/</kbd>
                   </label>
                   <select
                     aria-label="상태 필터"
                     value={status}
-                    onChange={(e) => setStatus(e.target.value)}
+                    onChange={(e) => {
+                      setStatus(e.target.value);
+                    }}
                   >
                     <option value="">모든 상태</option>
                     {STATUSES.map((s) => (
@@ -531,7 +576,9 @@ export default function App() {
                   <select
                     aria-label="우선순위 필터"
                     value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
+                    onChange={(e) => {
+                      setPriority(e.target.value);
+                    }}
                   >
                     <option value="">우선순위</option>
                     {Object.entries(priorityNames).map(([v, n]) => (
@@ -543,7 +590,9 @@ export default function App() {
                   <select
                     aria-label="담당자 필터"
                     value={assignee}
-                    onChange={(e) => setAssignee(e.target.value)}
+                    onChange={(e) => {
+                      setAssignee(e.target.value);
+                    }}
                   >
                     <option value="">모든 담당자</option>
                     {Array.from(
@@ -560,7 +609,9 @@ export default function App() {
                     <select
                       aria-label="목표 버전 필터"
                       value={versionFilter}
-                      onChange={(e) => setVersionFilter(e.target.value)}
+                      onChange={(e) => {
+                        setVersionFilter(e.target.value);
+                      }}
                     >
                       <option value="">모든 목표 버전</option>
                       {currentVersions.map((v) => (
@@ -596,7 +647,9 @@ export default function App() {
                     action={
                       <button
                         className="button primary"
-                        onClick={() => setProjectEditor("new")}
+                        onClick={() => {
+                          setProjectEditor("new");
+                        }}
                       >
                         <Icon name="plus" size={16} />첫 프로젝트 만들기
                       </button>
@@ -635,7 +688,9 @@ export default function App() {
                             <button
                               className="icon-button"
                               aria-label={`${statusNames[s]} 이슈 추가`}
-                              onClick={() => setIssueEditor(s)}
+                              onClick={() => {
+                                setIssueEditor(s);
+                              }}
                             >
                               <Icon name="plus" size={15} />
                             </button>
@@ -648,7 +703,9 @@ export default function App() {
                                   key={i.id}
                                   issue={i}
                                   data={data}
-                                  onOpen={() => navigate({ issue: i.id })}
+                                  onOpen={() => {
+                                    navigate({ issue: i.id });
+                                  }}
                                 />
                               ))}
                             {!filtered.some((i) => i.status === s) && (
@@ -673,7 +730,9 @@ export default function App() {
                       <button
                         className="issue-list-row"
                         key={i.id}
-                        onClick={() => navigate({ issue: i.id })}
+                        onClick={() => {
+                          navigate({ issue: i.id });
+                        }}
                       >
                         <span className="list-issue-title">
                           <span
@@ -728,20 +787,22 @@ export default function App() {
                         <button
                           className="icon-button"
                           aria-label={`${p.name} 편집`}
-                          onClick={() => setProjectEditor(p)}
+                          onClick={() => {
+                            setProjectEditor(p);
+                          }}
                         >
                           <Icon name="edit" size={16} />
                         </button>
                         <button
                           className="icon-button"
                           aria-label={`${p.name} 삭제`}
-                          onClick={() =>
+                          onClick={() => {
                             setDeleteTarget({
                               type: "project",
                               id: p.id,
                               name: p.name,
-                            })
-                          }
+                            });
+                          }}
                         >
                           <Icon name="trash" size={16} />
                         </button>
@@ -749,9 +810,9 @@ export default function App() {
                     </div>
                     <button
                       className="project-card-link"
-                      onClick={() =>
-                        navigate({ section: "issues", project: p.id })
-                      }
+                      onClick={() => {
+                        navigate({ section: "issues", project: p.id });
+                      }}
                     >
                       <h2>{p.name}</h2>
                       <p>{p.description || "아직 설명이 없는 프로젝트예요."}</p>
@@ -766,7 +827,7 @@ export default function App() {
                       <span className="progress-track">
                         <span
                           style={{
-                            width: `${issues.length ? (complete / issues.length) * 100 : 0}%`,
+                            width: `${String(issues.length ? (complete / issues.length) * 100 : 0)}%`,
                             background: p.color,
                           }}
                         />
@@ -782,9 +843,9 @@ export default function App() {
                       </span>
                       <button
                         className="text-button"
-                        onClick={() =>
-                          navigate({ section: "issues", project: p.id })
-                        }
+                        onClick={() => {
+                          navigate({ section: "issues", project: p.id });
+                        }}
                       >
                         열기 <Icon name="arrow" size={15} />
                       </button>
@@ -794,7 +855,9 @@ export default function App() {
               })}
               <button
                 className="new-project-card"
-                onClick={() => setProjectEditor("new")}
+                onClick={() => {
+                  setProjectEditor("new");
+                }}
               >
                 <span>
                   <Icon name="plus" size={26} />
@@ -812,7 +875,9 @@ export default function App() {
                   <select
                     aria-label="버전 프로젝트 필터"
                     value={route.project}
-                    onChange={(e) => navigate({ project: e.target.value })}
+                    onChange={(e) => {
+                      navigate({ project: e.target.value });
+                    }}
                   >
                     <option value="">모든 프로젝트</option>
                     {data.projects.map((p) => (
@@ -863,20 +928,22 @@ export default function App() {
                           <button
                             className="icon-button"
                             aria-label={`${v.name} 버전 편집`}
-                            onClick={() => setVersionEditor(v)}
+                            onClick={() => {
+                              setVersionEditor(v);
+                            }}
                           >
                             <Icon name="edit" size={17} />
                           </button>
                           <button
                             className="icon-button"
                             aria-label={`${v.name} 버전 삭제`}
-                            onClick={() =>
+                            onClick={() => {
                               setDeleteTarget({
                                 type: "version",
                                 id: v.id,
                                 name: v.name,
-                              })
-                            }
+                              });
+                            }}
                           >
                             <Icon name="trash" size={17} />
                           </button>
@@ -922,7 +989,7 @@ export default function App() {
                     .map((r) => {
                       const stale =
                         r.stale ||
-                        Date.now() - new Date(r.reportedAt).getTime() > 300_000;
+                        reportTime - new Date(r.reportedAt).getTime() > 300_000;
                       return (
                         <article className="agent-card" key={r.id}>
                           <header>
@@ -966,7 +1033,9 @@ export default function App() {
                             {r.issueId && (
                               <button
                                 className="text-button"
-                                onClick={() => navigate({ issue: r.issueId! })}
+                                onClick={() => {
+                                  if (r.issueId) navigate({ issue: r.issueId });
+                                }}
                               >
                                 연결 이슈 <Icon name="arrow" size={14} />
                               </button>
@@ -995,7 +1064,9 @@ export default function App() {
       {projectEditor && (
         <ProjectEditor
           project={projectEditor === "new" ? undefined : projectEditor}
-          onClose={() => setProjectEditor(null)}
+          onClose={() => {
+            setProjectEditor(null);
+          }}
           onSaved={async (p) => {
             setProjectEditor(null);
             await refresh();
@@ -1009,7 +1080,9 @@ export default function App() {
           version={versionEditor === "new" ? undefined : versionEditor}
           data={data}
           projectId={route.project}
-          onClose={() => setVersionEditor(null)}
+          onClose={() => {
+            setVersionEditor(null);
+          }}
           onSaved={async () => {
             setVersionEditor(null);
             await refresh();
@@ -1022,7 +1095,9 @@ export default function App() {
           initialStatus={issueEditor}
           data={data}
           projectId={route.project}
-          onClose={() => setIssueEditor(null)}
+          onClose={() => {
+            setIssueEditor(null);
+          }}
           onSaved={async (issue) => {
             setIssueEditor(null);
             await refresh();
@@ -1048,7 +1123,9 @@ export default function App() {
               ? "프로젝트에 이슈나 버전이 남아 있으면 삭제할 수 없어요. 빈 프로젝트만 삭제돼요."
               : "이 버전의 모든 이슈 연결이 해제돼요. 이슈 자체는 삭제되지 않아요."
           }
-          onClose={() => setDeleteTarget(null)}
+          onClose={() => {
+            setDeleteTarget(null);
+          }}
           onConfirm={async () => {
             await api(
               `/${deleteTarget.type === "project" ? "projects" : "versions"}/${deleteTarget.id}`,
@@ -1137,22 +1214,24 @@ function Login({
           <h2>나의 작업 공간으로</h2>
           <p>설정한 소유자 비밀번호로 들어오세요.</p>
           <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (busy) return;
-              setBusy(true);
-              setError("");
-              try {
-                await api("/session", {
-                  method: "POST",
-                  body: json({ password }),
-                });
-                await onLogin();
-              } catch (e) {
-                setError(errorText(e));
-              } finally {
-                setBusy(false);
-              }
+            onSubmit={(e) => {
+              void (async () => {
+                e.preventDefault();
+                if (busy) return;
+                setBusy(true);
+                setError("");
+                try {
+                  await api("/session", {
+                    method: "POST",
+                    body: json({ password }),
+                  });
+                  await onLogin();
+                } catch (e) {
+                  setError(errorText(e));
+                } finally {
+                  setBusy(false);
+                }
+              })();
             }}
           >
             <label className="field">
@@ -1162,7 +1241,9 @@ function Login({
                 required
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                }}
                 placeholder="비밀번호를 입력하세요"
               />
             </label>

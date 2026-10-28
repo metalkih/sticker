@@ -5,7 +5,7 @@ import { AuthManager } from "../server/auth.js";
 const password = "temporary-fixture-password-42";
 const token = "ephemeral-agent-token-not-a-real-grant";
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
-test("no default/weak owner password and invalid agent config are accepted", () => {
+void test("no default/weak owner password and invalid agent config are accepted", () => {
   assert.throws(() => new AuthManager({ ownerPassword: "" }));
   assert.throws(() => new AuthManager({ ownerPassword: "short" }));
   assert.throws(
@@ -24,7 +24,7 @@ test("no default/weak owner password and invalid agent config are accepted", () 
       }),
   );
 });
-test("owner sessions are random, revocable and do not accept the password as a bearer", () => {
+void test("owner sessions are random, revocable and do not accept the password as a bearer", () => {
   const auth = new AuthManager({ ownerPassword: password });
   assert.equal(auth.login("wrong", "fixture"), null);
   const session = auth.login(password, "fixture");
@@ -40,16 +40,17 @@ test("owner sessions are random, revocable and do not accept the password as a b
     null,
   );
 });
-test("session expiry cannot authenticate", async () => {
+void test("session expiry cannot authenticate", async () => {
   const auth = new AuthManager({ ownerPassword: password, sessionTtlMs: 1 });
   const session = auth.login(password, "fixture");
+  assert.ok(session);
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(
     auth.authenticate(undefined, `sticker_session=${session}`),
     null,
   );
 });
-test("bearer principal is configured rather than client-supplied and read-only scope survives", () => {
+void test("bearer principal is configured rather than client-supplied and read-only scope survives", () => {
   const auth = new AuthManager({
     ownerPassword: password,
     agents: [
@@ -71,7 +72,7 @@ test("bearer principal is configured rather than client-supplied and read-only s
   });
   assert.equal(auth.authenticate(`Bearer ${token}x`), null);
 });
-test("login throttles repeated failures, including correct password during cooldown", () => {
+void test("login throttles repeated failures, including correct password during cooldown", () => {
   const auth = new AuthManager({ ownerPassword: password });
   for (let i = 0; i < 10; i++)
     assert.equal(auth.login("wrong", "fixture"), null);

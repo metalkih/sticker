@@ -43,7 +43,7 @@ function denies(fn: () => unknown, status: number) {
   );
 }
 
-test("projects and versions persist and validate duplicate keys, date and ownership", (t) => {
+void test("projects and versions persist and validate duplicate keys, date and ownership", (t) => {
   const f = fixture(t);
   const p = project(f.store);
   assert.equal(p.key, "STK");
@@ -77,13 +77,15 @@ test("projects and versions persist and validate duplicate keys, date and owners
     () => reopened.updateVersion(owner, v.id, { projectId: "different" }),
     400,
   );
-  denies(() => reopened.deleteProject(owner, p.id), 409);
+  denies(() => {
+    reopened.deleteProject(owner, p.id);
+  }, 409);
   reopened.deleteVersion(owner, v.id);
   reopened.deleteProject(owner, p.id);
   assert.equal(reopened.bootstrap(owner).projects.length, 0);
 });
 
-test("issues have monotonic sequence keys, persist and record immutable actor activity", (t) => {
+void test("issues have monotonic sequence keys, persist and record immutable actor activity", (t) => {
   const f = fixture(t),
     p = project(f.store);
   const i = f.store.createIssue(owner, {
@@ -117,7 +119,7 @@ test("issues have monotonic sequence keys, persist and record immutable actor ac
   assert.equal(next.key, "STK-2");
 });
 
-test("optimistic revisions prevent two writers from silently overwriting assignment", (t) => {
+void test("optimistic revisions prevent two writers from silently overwriting assignment", (t) => {
   const f = fixture(t),
     p = project(f.store),
     i = f.store.createIssue(owner, { projectId: p.id, title: "claim me" });
@@ -148,7 +150,7 @@ test("optimistic revisions prevent two writers from silently overwriting assignm
   }
 });
 
-test("project scopes prevent all cross-project reads and mutation; readonly cannot write", (t) => {
+void test("project scopes prevent all cross-project reads and mutation; readonly cannot write", (t) => {
   const f = fixture(t),
     a = project(f.store, "AAA"),
     b = project(f.store, "BBB");
@@ -171,8 +173,12 @@ test("project scopes prevent all cross-project reads and mutation; readonly cann
     () => f.store.createIssue(scoped, { projectId: b.id, title: "attack" }),
     403,
   );
-  denies(() => f.store.deleteProject(scoped, a.id), 403);
-  denies(() => f.store.deleteIssue(scoped, ia.id), 403);
+  denies(() => {
+    f.store.deleteProject(scoped, a.id);
+  }, 403);
+  denies(() => {
+    f.store.deleteIssue(scoped, ia.id);
+  }, 403);
   denies(() => f.store.createProject(scoped, { key: "NEW", name: "new" }), 403);
   denies(
     () =>
@@ -195,7 +201,7 @@ test("project scopes prevent all cross-project reads and mutation; readonly cann
   );
 });
 
-test("done is not closed and only the owner can close or reopen", (t) => {
+void test("done is not closed and only the owner can close or reopen", (t) => {
   const f = fixture(t),
     p = project(f.store),
     agent: Actor = {
@@ -243,7 +249,7 @@ test("done is not closed and only the owner can close or reopen", (t) => {
   assert.equal(reopened.status, "ready");
 });
 
-test("target, found and fixed versions must belong to the same project and deletion clears references", (t) => {
+void test("target, found and fixed versions must belong to the same project and deletion clears references", (t) => {
   const f = fixture(t),
     p = project(f.store, "ONE"),
     other = project(f.store, "TWO");
@@ -286,7 +292,7 @@ test("target, found and fixed versions must belong to the same project and delet
   assert.ok(after.activity.some((a) => a.action === "version_removed"));
 });
 
-test("comments and attachments enforce attribution, input bounds, scope and author deletion", (t) => {
+void test("comments and attachments enforce attribution, input bounds, scope and author deletion", (t) => {
   const f = fixture(t),
     p = project(f.store),
     i = f.store.createIssue(owner, { projectId: p.id, title: "resources" });
@@ -304,7 +310,9 @@ test("comments and attachments enforce attribution, input bounds, scope and auth
     () => f.store.addComment(agent, i.id, { body: "fake", authorId: "owner" }),
     400,
   );
-  denies(() => f.store.deleteComment(other, c.id), 403);
+  denies(() => {
+    f.store.deleteComment(other, c.id);
+  }, 403);
   const link = f.store.addAttachment(agent, i.id, {
     kind: "link",
     name: "문서",
@@ -361,7 +369,7 @@ test("comments and attachments enforce attribution, input bounds, scope and auth
   assert.equal(f.store.getIssue(owner, i.id).comments.length, 0);
 });
 
-test("agent reports are authenticated self-reports, stale after five minutes and project-related", (t) => {
+void test("agent reports are authenticated self-reports, stale after five minutes and project-related", (t) => {
   const f = fixture(t),
     p = project(f.store, "ONE"),
     p2 = project(f.store, "TWO");
@@ -433,7 +441,7 @@ test("agent reports are authenticated self-reports, stale after five minutes and
   );
 });
 
-test("project key cannot be repurposed after issue keys have been allocated", (t) => {
+void test("project key cannot be repurposed after issue keys have been allocated", (t) => {
   const f = fixture(t),
     p = project(f.store);
   const i = f.store.createIssue(owner, {
@@ -445,7 +453,7 @@ test("project key cannot be repurposed after issue keys have been allocated", (t
   assert.equal(f.store.bootstrap(owner).projects[0].key, "STK");
 });
 
-test("deleting a linked version cannot let agents mutate an owner-closed issue indirectly", (t) => {
+void test("deleting a linked version cannot let agents mutate an owner-closed issue indirectly", (t) => {
   const f = fixture(t),
     p = project(f.store),
     v = f.store.createVersion(owner, { projectId: p.id, name: "v1" });
@@ -462,12 +470,14 @@ test("deleting a linked version cannot let agents mutate an owner-closed issue i
     canWrite: true,
     projectIds: [p.id],
   };
-  denies(() => f.store.deleteVersion(agent, v.id), 403);
+  denies(() => {
+    f.store.deleteVersion(agent, v.id);
+  }, 403);
   assert.equal(f.store.getIssue(owner, i.id).issue.targetVersionId, v.id);
   assert.equal(f.store.bootstrap(owner).versions.length, 1);
 });
 
-test("repeated valid issue revisions advance once each and stale retries do not add activity", (t) => {
+void test("repeated valid issue revisions advance once each and stale retries do not add activity", (t) => {
   const f = fixture(t),
     p = project(f.store),
     i = f.store.createIssue(owner, { projectId: p.id, title: "retry" });
@@ -487,4 +497,28 @@ test("repeated valid issue revisions advance once each and stale retries do not 
   );
   assert.equal(f.store.getIssue(owner, i.id).activity.length, 3);
   assert.equal(f.store.getIssue(owner, i.id).issue.status, "waiting");
+});
+
+void test("stored JSON labels must be a string array rather than an asserted Issue", (t) => {
+  const f = fixture(t);
+  const p = project(f.store);
+  const issue = f.store.createIssue(owner, {
+    projectId: p.id,
+    title: "저장 경계",
+  });
+  const db = new DatabaseSync(join(f.dir, "sticker.sqlite"));
+  try {
+    for (const labels of ["{}", "[1]", "null"]) {
+      db.prepare("UPDATE issues SET labels=? WHERE id=?").run(labels, issue.id);
+      assert.throws(() => f.store.getIssue(owner, issue.id));
+      assert.throws(() => f.store.bootstrap(owner));
+    }
+    db.prepare("UPDATE issues SET labels=? WHERE id=?").run(
+      '["유효"]',
+      issue.id,
+    );
+    assert.deepEqual(f.store.getIssue(owner, issue.id).issue.labels, ["유효"]);
+  } finally {
+    db.close();
+  }
 });

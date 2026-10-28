@@ -16,6 +16,11 @@ export interface AppConfig {
 }
 const actor = (req: Request) => (req as Request & { actor: Actor }).actor;
 const identifier = (req: Request) => String(req.params.id);
+function passwordInput(body: unknown): unknown {
+  return body !== null && typeof body === "object" && "password" in body
+    ? body.password
+    : undefined;
+}
 function detectedMime(data: Buffer): string {
   if (
     data.length >= 8 &&
@@ -89,7 +94,7 @@ export function createApp(config: AppConfig) {
       throw new DomainError(415, "CONTENT_TYPE", "JSON 요청이 필요합니다.");
     if (req.headers.origin && !validOrigin(req.headers.origin))
       throw new DomainError(403, "ORIGIN", "허용되지 않은 요청 출처입니다.");
-    const token = auth.login(req.body?.password, req.ip ?? "unknown");
+    const token = auth.login(passwordInput(req.body), req.ip ?? "unknown");
     if (!token)
       throw new DomainError(
         401,
@@ -201,14 +206,16 @@ export function createApp(config: AppConfig) {
     },
     (req, res, next) =>
       upload(req, res, (error) => {
-        if (error && !(error instanceof multer.MulterError))
-          return next(
+        if (error && !(error instanceof multer.MulterError)) {
+          next(
             new DomainError(
               400,
               "INVALID_MULTIPART",
               "올바른 파일 업로드 요청이 아닙니다.",
             ),
           );
+          return;
+        }
         next(error);
       }),
     (req, res) => {
@@ -217,7 +224,9 @@ export function createApp(config: AppConfig) {
       const storageKey = randomUUID();
       const name =
         basename(req.file.originalname.replace(/\\/g, "/"))
-          .replace(/[\x00-\x1f\x7f]/g, "")
+          .split("")
+          .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127)
+          .join("")
           .slice(0, 255) || "attachment";
       writeFileSync(join(uploadDir, storageKey), req.file.buffer, {
         flag: "wx",
@@ -247,7 +256,12 @@ export function createApp(config: AppConfig) {
     try {
       unlinkSync(safePath(storageKey));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT")
+      if (!(
+        e !== null &&
+        typeof e === "object" &&
+        "code" in e &&
+        e.code === "ENOENT"
+      ))
         console.error(
           "An orphaned attachment may remain on disk; check storage permissions.",
         );
@@ -273,7 +287,7 @@ export function createApp(config: AppConfig) {
       attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "attachment";
     res.set({
       "Content-Type": preview
-        ? attachment.mimeType!
+        ? (attachment.mimeType ?? "application/octet-stream")
         : "application/octet-stream",
       "Content-Disposition": `${preview ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(attachment.name).replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`,
       "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -309,8 +323,11 @@ export function createApp(config: AppConfig) {
       res.sendFile(join(clientDir, "index.html"));
     });
   }
-  const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
-    if (res.headersSent) return;
+  const handleError: ErrorRequestHandler = (err: unknown, _req, res, next) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
     if (err instanceof DomainError) {
       res.status(err.status).json({ error: err.message, code: err.code });
       return;
@@ -322,9 +339,13 @@ export function createApp(config: AppConfig) {
       });
       return;
     }
+    const errorType =
+      err !== null && typeof err === "object" && "type" in err
+        ? err.type
+        : undefined;
     if (
-      err?.type === "charset.unsupported" ||
-      err?.type === "encoding.unsupported"
+      errorType === "charset.unsupported" ||
+      errorType === "encoding.unsupported"
     ) {
       res.status(415).json({
         error: "지원하지 않는 요청 문자셋 또는 인코딩입니다.",
@@ -332,7 +353,7 @@ export function createApp(config: AppConfig) {
       });
       return;
     }
-    if (err?.type === "entity.too.large") {
+    if (errorType === "entity.too.large") {
       res.status(413).json({ error: "요청이 너무 큽니다.", code: "TOO_LARGE" });
       return;
     }
@@ -352,5 +373,11 @@ export function createApp(config: AppConfig) {
     });
   };
   app.use(handleError);
-  return { app, store, close: () => store.close() };
+  return {
+    app,
+    store,
+    close: () => {
+      store.close();
+    },
+  };
 }

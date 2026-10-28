@@ -8,12 +8,14 @@ const dataDir = mkdtempSync(join(tmpdir(), "sticker-browser-fixture-"));
 const instance = createApp({
   dataDir,
   ownerPassword: "ephemeral-sticker-test-password",
-  appOrigin: `http://127.0.0.1:${port}`,
+  appOrigin: `http://127.0.0.1:${String(port)}`,
   clientDir: "dist/client",
 });
-const server = instance.app.listen(port, "127.0.0.1", () =>
-  console.log(`Disposable Sticker test fixture: http://127.0.0.1:${port}`),
-);
+const server = instance.app.listen(port, "127.0.0.1", () => {
+  console.log(
+    `Disposable Sticker test fixture: http://127.0.0.1:${String(port)}`,
+  );
+});
 let closing = false;
 function close() {
   if (closing) return;

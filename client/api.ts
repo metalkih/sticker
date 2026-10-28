@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import { apiErrorSchema } from "../server/response-schemas.js";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -7,26 +9,40 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function api<T>(
+  path: string,
+  init: RequestInit | undefined,
+  schema: z.ZodType<T>,
+): Promise<T>;
+export function api(path: string, init?: RequestInit): Promise<unknown>;
+export async function api(
+  path: string,
+  init: RequestInit = {},
+  schema?: z.ZodType,
+): Promise<unknown> {
   const isForm = init.body instanceof FormData;
+  const headers = new Headers(init.headers);
+  if (!isForm && init.body && !headers.has("content-type"))
+    headers.set("content-type", "application/json");
   const response = await fetch(`/api${path}`, {
     ...init,
     credentials: "same-origin",
-    headers: {
-      ...(!isForm && init.body ? { "Content-Type": "application/json" } : {}),
-      ...init.headers,
-    },
+    headers,
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
+    const raw: unknown = await response.json().catch(() => null);
+    const parsed = apiErrorSchema.safeParse(raw);
+    const body = parsed.success ? parsed.data : {};
     throw new ApiError(
-      body.error || `요청을 처리하지 못했어요 (${response.status}).`,
+      body.error || `요청을 처리하지 못했어요 (${String(response.status)}).`,
       response.status,
       body.code || "REQUEST_FAILED",
     );
   }
-  if (response.status === 204) return undefined as T;
-  return response.json();
+  if (response.status === 204)
+    return schema ? schema.parse(undefined) : undefined;
+  const body: unknown = await response.json();
+  return schema ? schema.parse(body) : body;
 }
 export const json = (value: unknown) => JSON.stringify(value);
 export const errorText = (error: unknown) =>

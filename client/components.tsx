@@ -150,9 +150,14 @@ export function Modal({
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const releaseScrollLock = lockBodyScroll(document);
     const root = ref.current;
     const first = root?.querySelector<HTMLElement>(
@@ -170,14 +175,15 @@ export function Modal({
             "button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href]",
           ),
         );
+        if (!nodes.length) return;
         const first = nodes[0],
           last = nodes[nodes.length - 1];
         if (e.shiftKey && document.activeElement === first) {
           e.preventDefault();
-          last?.focus();
+          last.focus();
         } else if (!e.shiftKey && document.activeElement === last) {
           e.preventDefault();
-          first?.focus();
+          first.focus();
         }
       }
     };

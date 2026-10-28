@@ -1,3 +1,4 @@
+import { z } from "zod";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -49,7 +50,7 @@ else if(args[1]==='run'){
   );
   const env = {
     ...process.env,
-    PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+    PATH: `${join(dir, "bin")}:${String(process.env.PATH)}`,
     FIXTURE_LOG: join(dir, "docker.log"),
     FIXTURE_DATA: join(dir, "data"),
     FIXTURE_ARCHIVE: join(dir, "input.tar.gz"),
@@ -70,9 +71,14 @@ else if(args[1]==='run'){
             .trim()
             .split("\n")
             .filter(Boolean)
-            .map((line) => JSON.parse(line))
+            .map((line) => {
+              const value: unknown = JSON.parse(line);
+              return z.array(z.string()).parse(value);
+            })
         : [],
-    close: () => rmSync(dir, { recursive: true, force: true }),
+    close: () => {
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 function archive(dir: string) {
@@ -99,13 +105,16 @@ function createDb(path: string, title: string) {
 function marker(path: string) {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
-    return db.prepare("SELECT name FROM projects LIMIT 1").get()!.name;
+    const row = db.prepare("SELECT name FROM projects LIMIT 1").get();
+    assert.ok(row);
+    assert.equal(typeof row.name, "string");
+    return row.name;
   } finally {
     db.close();
   }
 }
 
-test("backup stops service, writes restrictive archive, restarts only previously running service, and refuses overwrite", () => {
+void test("backup stops service, writes restrictive archive, restarts only previously running service, and refuses overwrite", () => {
   const f = setup();
   try {
     createDb(join(f.dir, "source", "sticker.sqlite"), "backed up");
@@ -140,7 +149,7 @@ test("backup stops service, writes restrictive archive, restarts only previously
   }
 });
 
-test("restore requires confirmation and rejects traversal, links and missing DB before touching service", () => {
+void test("restore requires confirmation and rejects traversal, links and missing DB before touching service", () => {
   const f = setup();
   try {
     assert.equal(f.run("restore.sh", [join(f.dir, "input.tar.gz")]).status, 2);
@@ -190,7 +199,7 @@ test("restore requires confirmation and rejects traversal, links and missing DB 
   }
 });
 
-test("restore stages and integrity-checks before replacing old DB/files, then leaves service stopped", () => {
+void test("restore stages and integrity-checks before replacing old DB/files, then leaves service stopped", () => {
   const f = setup();
   try {
     createDb(join(f.dir, "data", "sticker.sqlite"), "old");
@@ -220,7 +229,7 @@ test("restore stages and integrity-checks before replacing old DB/files, then le
   }
 });
 
-test("invalid SQLite backup never replaces existing data and leaves service stopped", () => {
+void test("invalid SQLite backup never replaces existing data and leaves service stopped", () => {
   const f = setup();
   try {
     createDb(join(f.dir, "data", "sticker.sqlite"), "must survive");
@@ -242,7 +251,7 @@ test("invalid SQLite backup never replaces existing data and leaves service stop
 });
 
 for (const invalid of ["zero-byte", "unrelated", "missing-attachment"] as const)
-  test(`restore rejects ${invalid} backup before replacing live Sticker data`, () => {
+  void test(`restore rejects ${invalid} backup before replacing live Sticker data`, () => {
     const f = setup();
     try {
       createDb(join(f.dir, "data", "sticker.sqlite"), "must survive");

@@ -32,6 +32,7 @@ const agentSchema = z
     canWrite: z.boolean(),
   })
   .strict();
+export const agentsSchema = z.array(agentSchema).max(100);
 const sha = (v: string) => createHash("sha256").update(v).digest();
 const owner: Actor = {
   id: "owner",
@@ -56,10 +57,7 @@ export class AuthManager {
       throw new Error(
         "OWNER_PASSWORD must be 12–1024 characters; no default credential is provided.",
       );
-    this.agents = z
-      .array(agentSchema)
-      .max(100)
-      .parse(options.agents ?? []);
+    this.agents = agentsSchema.parse(options.agents ?? []);
     if (
       new Set(this.agents.map((a) => a.id)).size !== this.agents.length ||
       new Set(this.agents.map((a) => a.tokenHash)).size !== this.agents.length
@@ -105,7 +103,7 @@ export class AuthManager {
     }
     return { ...owner };
   }
-  login(password: string, ip: string): string | null {
+  login(password: unknown, ip: string): string | null {
     const now = Date.now();
     for (const [key, value] of this.failures)
       if (value.until <= now) this.failures.delete(key);
@@ -126,8 +124,10 @@ export class AuthManager {
       return null;
     }
     this.failures.delete(ip);
-    if (this.sessions.size >= 1000)
-      this.sessions.delete(this.sessions.keys().next().value!);
+    if (this.sessions.size >= 1000) {
+      const oldest = this.sessions.keys().next();
+      if (!oldest.done) this.sessions.delete(oldest.value);
+    }
     const token = randomBytes(32).toString("base64url");
     this.sessions.set(sha(token).toString("hex"), now + this.sessionTtlMs);
     return token;
