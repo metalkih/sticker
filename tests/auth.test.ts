@@ -1,0 +1,80 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { AuthManager } from "../server/auth.js";
+const password = "temporary-fixture-password-42";
+const token = "ephemeral-agent-token-not-a-real-grant";
+const hash = (v: string) => createHash("sha256").update(v).digest("hex");
+test("no default/weak owner password and invalid agent config are accepted", () => {
+  assert.throws(() => new AuthManager({ ownerPassword: "" }));
+  assert.throws(() => new AuthManager({ ownerPassword: "short" }));
+  assert.throws(
+    () =>
+      new AuthManager({
+        ownerPassword: password,
+        agents: [
+          {
+            id: "a",
+            name: "Agent",
+            tokenHash: "raw-token",
+            projectIds: null,
+            canWrite: true,
+          },
+        ],
+      }),
+  );
+});
+test("owner sessions are random, revocable and do not accept the password as a bearer", () => {
+  const auth = new AuthManager({ ownerPassword: password });
+  assert.equal(auth.login("wrong", "fixture"), null);
+  const session = auth.login(password, "fixture");
+  assert.ok(session);
+  assert.equal(
+    auth.authenticate(undefined, `sticker_session=${session}`)?.role,
+    "owner",
+  );
+  assert.equal(auth.authenticate(`Bearer ${password}`), null);
+  auth.logout(`sticker_session=${session}`);
+  assert.equal(
+    auth.authenticate(undefined, `sticker_session=${session}`),
+    null,
+  );
+});
+test("session expiry cannot authenticate", async () => {
+  const auth = new AuthManager({ ownerPassword: password, sessionTtlMs: 1 });
+  const session = auth.login(password, "fixture");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(
+    auth.authenticate(undefined, `sticker_session=${session}`),
+    null,
+  );
+});
+test("bearer principal is configured rather than client-supplied and read-only scope survives", () => {
+  const auth = new AuthManager({
+    ownerPassword: password,
+    agents: [
+      {
+        id: "agent-1",
+        name: "Fixture agent",
+        tokenHash: hash(token),
+        projectIds: ["p1"],
+        canWrite: false,
+      },
+    ],
+  });
+  assert.deepEqual(auth.authenticate(`Bearer ${token}`), {
+    id: "agent-1",
+    name: "Fixture agent",
+    role: "agent",
+    projectIds: ["p1"],
+    canWrite: false,
+  });
+  assert.equal(auth.authenticate(`Bearer ${token}x`), null);
+});
+test("login throttles repeated failures, including correct password during cooldown", () => {
+  const auth = new AuthManager({ ownerPassword: password });
+  for (let i = 0; i < 10; i++)
+    assert.equal(auth.login("wrong", "fixture"), null);
+  assert.equal(auth.login(password, "fixture"), null);
+  assert.ok(auth.login(password, "different-fixture"));
+});

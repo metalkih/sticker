@@ -1,0 +1,356 @@
+import express, { type ErrorRequestHandler, type Request } from "express";
+import multer from "multer";
+import { mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { resolve, join, basename } from "node:path";
+import { randomUUID } from "node:crypto";
+import { AuthManager, type AgentConfig } from "./auth.js";
+import { Store, DomainError } from "./domain.js";
+import type { Actor } from "./types.js";
+export interface AppConfig {
+  dataDir: string;
+  ownerPassword: string;
+  agents?: AgentConfig[];
+  appOrigin?: string;
+  secureCookies?: boolean;
+  clientDir?: string;
+}
+const actor = (req: Request) => (req as Request & { actor: Actor }).actor;
+const identifier = (req: Request) => String(req.params.id);
+function detectedMime(data: Buffer): string {
+  if (
+    data.length >= 8 &&
+    data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  )
+    return "image/png";
+  if (data.length >= 3 && data[0] === 255 && data[1] === 216 && data[2] === 255)
+    return "image/jpeg";
+  if (
+    data.length >= 6 &&
+    ["GIF87a", "GIF89a"].includes(data.subarray(0, 6).toString())
+  )
+    return "image/gif";
+  if (
+    data.length >= 12 &&
+    data.subarray(0, 4).toString() === "RIFF" &&
+    data.subarray(8, 12).toString() === "WEBP"
+  )
+    return "image/webp";
+  return "application/octet-stream";
+}
+export function createApp(config: AppConfig) {
+  const auth = new AuthManager({
+    ownerPassword: config.ownerPassword,
+    agents: config.agents,
+  });
+  const dataDir = resolve(config.dataDir),
+    uploadDir = join(dataDir, "uploads");
+  mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
+  const store = new Store(dataDir),
+    app = express();
+  const appOrigin = new URL(config.appOrigin ?? "http://localhost:8787");
+  if (!["http:", "https:"].includes(appOrigin.protocol))
+    throw new Error("APP_ORIGIN must be an http(s) origin.");
+  const origins = new Set([appOrigin.origin]);
+  if (["localhost", "127.0.0.1"].includes(appOrigin.hostname)) {
+    const alias = new URL(appOrigin);
+    alias.hostname =
+      appOrigin.hostname === "localhost" ? "127.0.0.1" : "localhost";
+    origins.add(alias.origin);
+  }
+  const validOrigin = (origin: string | undefined) =>
+    origin !== undefined && origins.has(origin);
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure: config.secureCookies ?? appOrigin.protocol === "https:",
+    path: "/api",
+    maxAge: 12 * 60 * 60 * 1000,
+  };
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.set({
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "no-referrer",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "Content-Security-Policy":
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    });
+    next();
+  });
+  app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
+  app.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
+  app.use("/api", express.json({ limit: "512kb" }));
+  app.post("/api/session", (req, res) => {
+    if (!req.is("application/json"))
+      throw new DomainError(415, "CONTENT_TYPE", "JSON 요청이 필요합니다.");
+    if (req.headers.origin && !validOrigin(req.headers.origin))
+      throw new DomainError(403, "ORIGIN", "허용되지 않은 요청 출처입니다.");
+    const token = auth.login(req.body?.password, req.ip ?? "unknown");
+    if (!token)
+      throw new DomainError(
+        401,
+        "LOGIN_FAILED",
+        "비밀번호를 확인하세요. 반복 실패 시 15분 후 다시 시도하세요.",
+      );
+    res.cookie("sticker_session", token, cookieOptions).json({
+      actor: auth.authenticate(undefined, `sticker_session=${token}`),
+    });
+  });
+  app.use("/api", (req, res, next) => {
+    const principal = auth.authenticate(
+      req.headers.authorization,
+      req.headers.cookie,
+    );
+    if (!principal)
+      return res
+        .status(401)
+        .json({ error: "로그인이 필요합니다.", code: "UNAUTHENTICATED" });
+    (req as Request & { actor: Actor }).actor = principal;
+    if (
+      !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+      !req.headers.authorization &&
+      !validOrigin(req.headers.origin)
+    )
+      throw new DomainError(403, "ORIGIN", "허용되지 않은 요청 출처입니다.");
+    next();
+  });
+  app.get("/api/session", (req, res) => res.json({ actor: actor(req) }));
+  app.delete("/api/session", (req, res) => {
+    auth.logout(req.headers.cookie);
+    res
+      .clearCookie("sticker_session", { ...cookieOptions, maxAge: undefined })
+      .status(204)
+      .end();
+  });
+  app.get("/api/bootstrap", (req, res) =>
+    res.json(store.bootstrap(actor(req))),
+  );
+  app.post("/api/projects", (req, res) =>
+    res.status(201).json(store.createProject(actor(req), req.body)),
+  );
+  app.patch("/api/projects/:id", (req, res) =>
+    res.json(store.updateProject(actor(req), identifier(req), req.body)),
+  );
+  app.delete("/api/projects/:id", (req, res) => {
+    store.deleteProject(actor(req), identifier(req));
+    res.status(204).end();
+  });
+  app.post("/api/versions", (req, res) =>
+    res.status(201).json(store.createVersion(actor(req), req.body)),
+  );
+  app.patch("/api/versions/:id", (req, res) =>
+    res.json(store.updateVersion(actor(req), identifier(req), req.body)),
+  );
+  app.delete("/api/versions/:id", (req, res) => {
+    store.deleteVersion(actor(req), identifier(req));
+    res.status(204).end();
+  });
+  app.post("/api/issues", (req, res) =>
+    res.status(201).json(store.createIssue(actor(req), req.body)),
+  );
+  app.get("/api/issues/:id", (req, res) =>
+    res.json(store.getIssue(actor(req), identifier(req))),
+  );
+  app.patch("/api/issues/:id", (req, res) =>
+    res.json(store.updateIssue(actor(req), identifier(req), req.body)),
+  );
+  app.delete("/api/issues/:id", (req, res) => {
+    const attachments = store.getIssue(actor(req), identifier(req)).attachments;
+    store.deleteIssue(actor(req), identifier(req));
+    for (const attachment of attachments)
+      if (attachment.storageKey) removeFile(attachment.storageKey);
+    res.status(204).end();
+  });
+  app.post("/api/issues/:id/comments", (req, res) =>
+    res
+      .status(201)
+      .json(store.addComment(actor(req), identifier(req), req.body)),
+  );
+  app.delete("/api/comments/:id", (req, res) => {
+    store.deleteComment(actor(req), identifier(req));
+    res.status(204).end();
+  });
+  app.post("/api/issues/:id/links", (req, res) =>
+    res.status(201).json(
+      store.addAttachment(actor(req), identifier(req), {
+        ...req.body,
+        kind: "link",
+      }),
+    ),
+  );
+  // Multer 2.5 forwards charset options to Busboy; decode ordinary browser filenames
+  // as UTF-8 while letting filename* declarations choose their own charset.
+  const uploadOptions: multer.Options & { defParamCharset: string } = {
+    storage: multer.memoryStorage(),
+    defParamCharset: "utf8",
+    limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
+  };
+  const upload = multer(uploadOptions).single("file");
+  app.post(
+    "/api/issues/:id/attachments",
+    (req, _res, next) => {
+      const principal = actor(req);
+      store.getIssue(principal, identifier(req));
+      if (!principal.canWrite)
+        throw new DomainError(403, "READ_ONLY", "읽기 전용 접근 권한입니다.");
+      next();
+    },
+    (req, res, next) =>
+      upload(req, res, (error) => {
+        if (error && !(error instanceof multer.MulterError))
+          return next(
+            new DomainError(
+              400,
+              "INVALID_MULTIPART",
+              "올바른 파일 업로드 요청이 아닙니다.",
+            ),
+          );
+        next(error);
+      }),
+    (req, res) => {
+      if (!req.file)
+        throw new DomainError(400, "FILE_REQUIRED", "파일 하나를 선택하세요.");
+      const storageKey = randomUUID();
+      const name =
+        basename(req.file.originalname.replace(/\\/g, "/"))
+          .replace(/[\x00-\x1f\x7f]/g, "")
+          .slice(0, 255) || "attachment";
+      writeFileSync(join(uploadDir, storageKey), req.file.buffer, {
+        flag: "wx",
+        mode: 0o600,
+      });
+      try {
+        const attachment = store.addAttachment(actor(req), identifier(req), {
+          kind: "file",
+          name,
+          storageKey,
+          mimeType: detectedMime(req.file.buffer),
+          size: req.file.size,
+        });
+        res.status(201).json(attachment);
+      } catch (e) {
+        removeFile(storageKey);
+        throw e;
+      }
+    },
+  );
+  function safePath(storageKey: string) {
+    if (!/^[0-9a-f-]{36}$/.test(storageKey))
+      throw new DomainError(404, "NOT_FOUND", "파일을 찾을 수 없습니다.");
+    return join(uploadDir, storageKey);
+  }
+  function removeFile(storageKey: string) {
+    try {
+      unlinkSync(safePath(storageKey));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT")
+        console.error(
+          "An orphaned attachment may remain on disk; check storage permissions.",
+        );
+    }
+  }
+  app.get("/api/attachments/:id/file", (req, res, next) => {
+    const attachment = store.getAttachment(actor(req), identifier(req));
+    if (attachment.kind !== "file" || !attachment.storageKey)
+      throw new DomainError(404, "NOT_FOUND", "파일을 찾을 수 없습니다.");
+    const path = safePath(attachment.storageKey);
+    if (!existsSync(path))
+      throw new DomainError(
+        404,
+        "FILE_MISSING",
+        "저장 파일이 없습니다. 백업을 확인하세요.",
+      );
+    const preview =
+      req.query.preview === "1" &&
+      ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+        attachment.mimeType ?? "",
+      );
+    const fallback =
+      attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "attachment";
+    res.set({
+      "Content-Type": preview
+        ? attachment.mimeType!
+        : "application/octet-stream",
+      "Content-Disposition": `${preview ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(attachment.name).replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16))}`,
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
+    res.sendFile(path, (e) => {
+      if (e) next(e);
+    });
+  });
+  app.delete("/api/attachments/:id", (req, res) => {
+    const attachment = store.deleteAttachment(actor(req), identifier(req));
+    if (attachment.storageKey) removeFile(attachment.storageKey);
+    res.status(204).end();
+  });
+  app.post("/api/reports", (req, res) =>
+    res.status(201).json(store.reportAgent(actor(req), req.body)),
+  );
+  app.use("/api", (_req, res) =>
+    res
+      .status(404)
+      .json({ error: "API 경로를 찾을 수 없습니다.", code: "NOT_FOUND" }),
+  );
+  const clientDir = resolve(config.clientDir ?? "dist/client");
+  if (existsSync(join(clientDir, "index.html"))) {
+    app.use(
+      express.static(clientDir, {
+        index: false,
+        dotfiles: "deny",
+        maxAge: "1h",
+      }),
+    );
+    app.get("/{*path}", (_req, res) => {
+      res.set("Cache-Control", "no-cache");
+      res.sendFile(join(clientDir, "index.html"));
+    });
+  }
+  const handleError: ErrorRequestHandler = (err, _req, res, _next) => {
+    if (res.headersSent) return;
+    if (err instanceof DomainError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    if (err instanceof multer.MulterError) {
+      res.status(err.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+        error: "파일은 20 MiB 이하 한 개만 업로드할 수 있습니다.",
+        code: err.code,
+      });
+      return;
+    }
+    if (
+      err?.type === "charset.unsupported" ||
+      err?.type === "encoding.unsupported"
+    ) {
+      res.status(415).json({
+        error: "지원하지 않는 요청 문자셋 또는 인코딩입니다.",
+        code: "UNSUPPORTED_ENCODING",
+      });
+      return;
+    }
+    if (err?.type === "entity.too.large") {
+      res.status(413).json({ error: "요청이 너무 큽니다.", code: "TOO_LARGE" });
+      return;
+    }
+    if (err instanceof SyntaxError || err instanceof URIError) {
+      res
+        .status(400)
+        .json({ error: "잘못된 요청 형식입니다.", code: "BAD_REQUEST" });
+      return;
+    }
+    console.error(
+      "Request failed:",
+      err instanceof Error ? err.name : "UnknownError",
+    );
+    res.status(500).json({
+      error: "서버 오류가 발생했습니다. 잠시 후 다시 시도하세요.",
+      code: "INTERNAL_ERROR",
+    });
+  };
+  app.use(handleError);
+  return { app, store, close: () => store.close() };
+}

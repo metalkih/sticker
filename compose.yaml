@@ -1,0 +1,30 @@
+name: sticker
+services:
+  sticker:
+    image: sticker:local
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${STICKER_PORT:-8787}:8787"
+    environment:
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD in .env before starting}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8787}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      DATA_DIR: /app/data
+      HOST: 0.0.0.0
+      PORT: 8787
+      # Leave empty to disable all agent access. This file is operator-owned.
+      AGENT_CONFIG_PATH: ${AGENT_CONFIG_PATH:-}
+    volumes:
+      - sticker_data:/app/data
+      - ./config:/app/config:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  sticker_data:
