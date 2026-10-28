@@ -1,5 +1,11 @@
 import { bootstrapSchema } from "../server/response-schemas.js";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   Bootstrap,
   Issue,
@@ -70,33 +76,38 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [reportTime, setReportTime] = useState(Date.now);
   const [filterProject, setFilterProject] = useState(route.project);
-  const refresh = useCallback(
-    () =>
-      api("/bootstrap", undefined, bootstrapSchema)
-        .then(
-          (next) => {
-            setData(next);
-            setAuthenticated(true);
-            setError("");
-          },
-          (e: unknown) => {
-            if (e instanceof ApiError && e.status === 401) {
-              setAuthenticated(false);
-              setData(null);
-            } else setError(errorText(e));
-          },
-        )
-        .finally(() => {
-          setReportTime(Date.now());
-          setLoading(false);
-        }),
-    [],
-  );
+  const refreshSequence = useRef(0);
+  const refresh = useCallback(() => {
+    const sequence = ++refreshSequence.current;
+    return api("/bootstrap", undefined, bootstrapSchema)
+      .then(
+        (next) => {
+          if (sequence !== refreshSequence.current) return;
+          setData(next);
+          setAuthenticated(true);
+          setError("");
+        },
+        (e: unknown) => {
+          if (sequence !== refreshSequence.current) return;
+          if (e instanceof ApiError && e.status === 401) {
+            setAuthenticated(false);
+            setData(null);
+          } else setError(errorText(e));
+        },
+      )
+      .finally(() => {
+        if (sequence !== refreshSequence.current) return;
+        setReportTime(Date.now());
+        setLoading(false);
+      });
+  }, []);
   useEffect(() => {
+    const requests = refreshSequence;
     void refresh();
     const timer = setInterval(() => void refresh(), 30_000);
     return () => {
       clearInterval(timer);
+      requests.current++;
     };
   }, [refresh]);
   useEffect(() => {
@@ -204,6 +215,7 @@ export default function App() {
   async function logout() {
     try {
       await api("/session", { method: "DELETE" });
+      refreshSequence.current++;
       setAuthenticated(false);
       setData(null);
       navigate({ section: "issues", project: "", issue: "" });
